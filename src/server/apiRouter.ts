@@ -3515,8 +3515,15 @@ apiRouter.post('/inventory/coils/:id/allocate', async (req: Request, res: Respon
  * Automatically deducts consumed raw materials / fasteners / WIP sub-assemblies
  * and posts official WIP or Finished Goods receipts with full Heat/Coil traceability.
  */
-apiRouter.post('/production/execute-op-backflush', (req: Request, res: Response) => {
+apiRouter.post('/production/execute-op-backflush', async (req: Request, res: Response) => {
   try {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(409).json({
+        success: false,
+        error: 'اجرای Backflush فعلاً به نسبت‌های ثابت نمونه متکی است و تا زمان اتصال به BOM تأییدشده و ردیابی واقعی کویل در محیط عملیاتی غیرفعال است.',
+      });
+    }
+
     const {
       orderCode = 'MO-ECU-01',
       partId,
@@ -3885,6 +3892,7 @@ apiRouter.post('/production/execute-op-backflush', (req: Request, res: Response)
     }
 
     const { balances } = calculateDetailedStockBalances(inventoryDocsStore, reservationsStore, partsStore);
+    await persistInventoryAppState();
 
     res.json({
       success: true,
