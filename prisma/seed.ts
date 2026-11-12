@@ -16,6 +16,7 @@
 
 import { PartCategory, ProcessType, MachineType, MachineStatus, DieType, DieStatus, WarehouseType, DocumentStatus, PostingStatus, InventoryDocType, DocReferenceType, TransactionType, OrderLineStatus, PlanStatus, PlanLineStatus, MOStatus, ProductionOpStatus, ScrapReason, TransferStatus, LotStatus, ContractStatus, ContractTxType, RouteStatus } from '@prisma/client';
 import { getPrismaClient } from '../src/server/db/prisma';
+import { INITIAL_PARTS } from '../src/server/sampleData';
 
 const prisma = getPrismaClient();
 
@@ -453,6 +454,53 @@ async function main() {
       },
     });
     partMap[p.partNumber] = created.id;
+  }
+
+  // -------------------------------------------------------------------------
+  // 8B. CANONICAL APPLICATION PARTS
+  // Keep the API's canonical part codes available in PostgreSQL. Inventory posting
+  // resolves document lines by these exact codes, so the demo seed and app catalog
+  // must not drift apart.
+  // -------------------------------------------------------------------------
+  console.log('  -> Synchronizing canonical application parts...');
+  for (const p of INITIAL_PARTS) {
+    const materialId = p.materialGrade ? materialMap[`MAT-${p.materialGrade}`] : undefined;
+    if (p.materialGrade && !materialId) {
+      throw new Error(`Material grade ${p.materialGrade} for application part ${p.code} is missing from the material seed.`);
+    }
+
+    await prisma.part.upsert({
+      where: { partNumber: p.code },
+      update: {
+        name: p.name,
+        category: p.category,
+        unitId: uomMap[p.unit],
+        materialId: materialId || null,
+        thicknessMm: p.thicknessMm,
+        weightNetKg: p.weightPerUnitKg,
+        weightGrossKg: p.weightPerUnitKg,
+        supplierPartNumber: p.sapcoCode,
+        carModel: p.carModel,
+        minSafetyStock: p.minStock,
+        maxStock: p.maxStock,
+        active: true,
+      },
+      create: {
+        partNumber: p.code,
+        name: p.name,
+        category: p.category,
+        unitId: uomMap[p.unit],
+        materialId,
+        thicknessMm: p.thicknessMm,
+        weightNetKg: p.weightPerUnitKg,
+        weightGrossKg: p.weightPerUnitKg,
+        supplierPartNumber: p.sapcoCode,
+        carModel: p.carModel,
+        minSafetyStock: p.minStock,
+        maxStock: p.maxStock,
+        active: true,
+      },
+    });
   }
 
   // -------------------------------------------------------------------------
