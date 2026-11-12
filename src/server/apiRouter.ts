@@ -1539,6 +1539,7 @@ apiRouter.post('/demo-data/seed', async (_req: Request, res: Response) => {
 
   reseedCustomerOrdersAndPlans();
   reseedProductionWipData();
+  await persistProductionWipState();
 
   const summary = calculateInventoryLedger(transactionsStore, partsStore);
   res.json({
@@ -1577,6 +1578,7 @@ apiRouter.post('/demo-data/clean', async (_req: Request, res: Response) => {
   try {
     const prisma = getPrismaClient();
     if (prisma) {
+      await prisma.wipStateSnapshot.deleteMany({});
       await prisma.productionScrap.deleteMany({}).catch(() => {});
       await prisma.machineAssignment.deleteMany({}).catch(() => {});
       await prisma.productionReport.deleteMany({}).catch(() => {});
