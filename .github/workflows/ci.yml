@@ -61,5 +61,8 @@ jobs:
       - name: Seed canonical master data
         run: bun run seed
 
+      - name: Verify production-safe master seed
+        run: bun run seed:master
+
       - name: Automated tests
         run: bun run test
