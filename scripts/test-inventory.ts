@@ -875,9 +875,9 @@ async function runAllTests() {
             id: 'L-DB-1',
             documentId: 'DOC-PERSIST',
             lineNumber: 1,
-            partId: 'PRT-COIL-01',
-            partCode: 'SAPCO-DC04-0.8',
-            partName: 'ورق پایگاه داده',
+            partId: 'PRT-RAW-ECU-COIL',
+            partCode: 'RM-COIL-DC01A-2.0-1140',
+            partName: 'رول ورق روغنی DC01A',
             quantity: 500,
             unit: 'KG',
             quantityKg: 500,
@@ -942,6 +942,11 @@ async function runAllTests() {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+
+  if (!isDbReady) {
+    const noDbPost = await postDocumentInDbTransaction(concurrentDocA, testUser);
+    assert(noDbPost.success === false, 'Inventory posting fails closed when DATABASE_URL is not configured');
+  }
 
   const sharedStockDocs = [initialStock100Doc]; // Total available: 100 kg
   const resA = atomicPostDocument(concurrentDocA, sharedStockDocs, [], testParts, testUser);
