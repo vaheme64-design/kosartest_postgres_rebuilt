@@ -1601,6 +1601,21 @@ export async function postDocumentInDbTransaction(
             },
           });
         }
+
+        // A transfer changes warehouse balances but not the physical coil's total remaining weight.
+        // Receipts, issues and adjustments update the lot's remaining weight in the same DB transaction.
+        if (lotId && movementType !== 'TRANSFER_IN' && movementType !== 'TRANSFER_OUT') {
+          const materialLot = await tx.materialLot.findUnique({ where: { id: lotId } });
+          if (!materialLot) throw new Error(`بچ/کویل مرتبط با ردیف «${line.partCode}» یافت نشد.`);
+          const nextLotWeight = Number(materialLot.remainingWeightKg) + signedWeightKg;
+          if (nextLotWeight < -0.000001) {
+            throw new Error(`وزن قابل مصرف کویل «${materialLot.lotNumber}» کافی نیست. مانده: ${materialLot.remainingWeightKg}، درخواست: ${Math.abs(signedWeightKg)} کیلوگرم.`);
+          }
+          await tx.materialLot.update({
+            where: { id: lotId },
+            data: { remainingWeightKg: Math.max(0, nextLotWeight) },
+          });
+        }
       };
 
       for (const line of document.lines) {
