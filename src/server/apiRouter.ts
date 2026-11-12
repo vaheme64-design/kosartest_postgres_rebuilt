@@ -534,7 +534,7 @@ export async function loadInventoryAppState(): Promise<void> {
         warehouseName: row.warehouse.name,
         materialLotId: row.materialLot?.lotNumber,
         lotNumber: row.materialLot?.lotNumber,
-        ownership: 'COMPANY_OWNED',
+        ownership: 'COMPANY_OWNED' as InventoryReservation['ownership'],
         reservedFor: row.reservedForMO?.moNumber || row.reservedForCO?.orderNumber || 'سفارش نامشخص',
         quantity: Number(row.quantity),
         quantityKg: Number(row.weightKg),
