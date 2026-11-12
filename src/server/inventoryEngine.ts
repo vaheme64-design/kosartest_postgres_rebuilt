@@ -1512,17 +1512,17 @@ export async function postDocumentInDbTransaction(
           line, lineId, partId, unitId, warehouseId, locationId,
           signedQuantity, signedWeightKg, suffix, movementType,
         } = args;
-        const lotId = line.materialLotId
-          ? line.materialLotId
+        const resolvedLot = line.materialLotId
+          ? await tx.materialLot.findFirst({
+              where: { OR: [{ id: line.materialLotId }, { lotNumber: line.materialLotId }] },
+            })
           : line.lotNumber
-            ? (await tx.materialLot.findUnique({ where: { lotNumber: line.lotNumber } }))?.id || null
+            ? await tx.materialLot.findUnique({ where: { lotNumber: line.lotNumber } })
             : null;
+        const lotId = resolvedLot?.id || null;
 
-        if (line.materialLotId && !(await tx.materialLot.findUnique({ where: { id: line.materialLotId } }))) {
-          throw new Error(`شناسه بچ/کویل «${line.materialLotId}» در پایگاه داده وجود ندارد.`);
-        }
-        if (line.lotNumber && !lotId) {
-          throw new Error(`بچ/کویل «${line.lotNumber}» در پایگاه داده ثبت نشده است؛ ابتدا اطلاعات ردیابی آن را ایجاد کنید.`);
+        if ((line.materialLotId || line.lotNumber) && !resolvedLot) {
+          throw new Error(`بچ/کویل «${line.lotNumber || line.materialLotId}» در پایگاه داده ثبت نشده است؛ ابتدا اطلاعات ردیابی آن را ایجاد کنید.`);
         }
 
         const existingBalance = await tx.stockBalance.findFirst({
@@ -1633,12 +1633,15 @@ export async function postDocumentInDbTransaction(
 
         const location = await resolveLocation(line.locationCode, warehouse.id);
         const lot = line.materialLotId
-          ? await tx.materialLot.findUnique({ where: { id: line.materialLotId } })
+          ? await tx.materialLot.findFirst({
+              where: { OR: [{ id: line.materialLotId }, { lotNumber: line.materialLotId }] },
+            })
           : line.lotNumber
             ? await tx.materialLot.findUnique({ where: { lotNumber: line.lotNumber } })
             : null;
-        if (line.materialLotId && !lot) throw new Error(`بچ/کویل «${line.materialLotId}» یافت نشد.`);
-        if (line.lotNumber && !lot) throw new Error(`بچ/کویل «${line.lotNumber}» یافت نشد.`);
+        if ((line.materialLotId || line.lotNumber) && !lot) {
+          throw new Error(`بچ/کویل «${line.lotNumber || line.materialLotId}» یافت نشد.`);
+        }
 
         const lineOwnership = line.ownership || document.ownership || 'COMPANY_OWNED';
         const lineContractId = line.contractId || document.contractId || null;
