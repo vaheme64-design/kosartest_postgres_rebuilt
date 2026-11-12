@@ -28,7 +28,7 @@ import {
   PROCESS_DEFINITIONS,
   FACTORY_HALLS,
 } from '../types/inventory';
-import { checkDatabaseConnection, getPrismaClient } from './db/prisma';
+import { checkDatabaseConnection, getPrismaClient, isDatabaseUrlConfigured } from './db/prisma';
 import { CreateProductionPlanSchema, CreateSapcoReceiptSchema } from './validation/index';
 import { formatToJalali } from '../utils/jalali';
 
@@ -325,6 +325,246 @@ let shiftsStore: ShiftDefinition[] = [
 // Saved report configurations are persisted in PostgreSQL, not in process memory.
 let importBatchesStore: ImportBatchSummary[] = [];
 
+const INVENTORY_APP_SNAPSHOT_ID = 'inventory-app-state';
+let inventoryStateQueue: Promise<unknown> = Promise.resolve();
+
+export async function persistInventoryAppState(): Promise<void> {
+  if (!isDatabaseUrlConfigured()) {
+    throw new Error('DATABASE_URL is required; contract and physical-coil state cannot remain memory-only.');
+  }
+
+  const prisma = getPrismaClient();
+  const payload = JSON.parse(JSON.stringify({
+    contracts: contractsStore,
+    physicalCoils: physicalCoilsStore,
+    coilIssueRecords: coilIssueRecordsStore,
+    reservations: reservationsStore,
+  }));
+
+  const task = inventoryStateQueue.catch(() => undefined).then(async () => {
+    await prisma.inventoryAppStateSnapshot.upsert({
+      where: { id: INVENTORY_APP_SNAPSHOT_ID },
+      create: { id: INVENTORY_APP_SNAPSHOT_ID, payload },
+      update: { payload },
+    });
+  });
+  inventoryStateQueue = task.then(() => undefined, () => undefined);
+  await task;
+}
+
+export async function loadInventoryAppState(): Promise<void> {
+  if (!isDatabaseUrlConfigured()) {
+    throw new Error('DATABASE_URL is required before loading inventory application state.');
+  }
+
+  const prisma = getPrismaClient();
+  const snapshot = await prisma.inventoryAppStateSnapshot.findUnique({
+    where: { id: INVENTORY_APP_SNAPSHOT_ID },
+  });
+
+  if (snapshot) {
+    const payload = snapshot.payload as {
+      contracts?: SapcoContract[];
+      physicalCoils?: PhysicalCoil[];
+      coilIssueRecords?: CoilIssueReturnRecord[];
+      reservations?: InventoryReservation[];
+    };
+    if (
+      !payload ||
+      !Array.isArray(payload.contracts) ||
+      !Array.isArray(payload.physicalCoils) ||
+      !Array.isArray(payload.coilIssueRecords) ||
+      !Array.isArray(payload.reservations)
+    ) {
+      throw new Error('Persistent inventory application snapshot is malformed; refusing to overwrite it.');
+    }
+
+    contractsStore.splice(0, contractsStore.length, ...payload.contracts);
+    physicalCoilsStore.splice(0, physicalCoilsStore.length, ...payload.physicalCoils);
+    coilIssueRecordsStore.splice(0, coilIssueRecordsStore.length, ...payload.coilIssueRecords);
+    reservationsStore.splice(0, reservationsStore.length, ...payload.reservations);
+  } else if (process.env.NODE_ENV === 'production') {
+    // Do not expose hard-coded sample contracts/coils as live production inventory.
+    contractsStore.splice(0);
+    physicalCoilsStore.splice(0);
+    coilIssueRecordsStore.splice(0);
+    reservationsStore.splice(0);
+    await persistInventoryAppState();
+  }
+
+  const dbParts = await prisma.part.findMany({
+    where: { active: true },
+    include: { unit: true, material: true },
+    orderBy: { partNumber: 'asc' },
+  });
+  if (dbParts.length) {
+    partsStore = dbParts.map(dbPart => {
+      const template = INITIAL_PARTS.find(part => part.code === dbPart.partNumber);
+      return {
+        id: template?.id || dbPart.id,
+        code: dbPart.partNumber,
+        name: dbPart.name,
+        category: dbPart.category as Part['category'],
+        unit: dbPart.unit.code as Part['unit'],
+        weightPerUnitKg: Number(dbPart.weightNetKg),
+        sapcoCode: dbPart.supplierPartNumber || template?.sapcoCode,
+        carModel: dbPart.carModel || undefined,
+        thicknessMm: dbPart.thicknessMm == null ? undefined : Number(dbPart.thicknessMm),
+        materialGrade: dbPart.material?.grade || undefined,
+        minStock: Number(dbPart.minSafetyStock),
+        maxStock: dbPart.maxStock == null ? undefined : Number(dbPart.maxStock),
+        isDemo: false,
+      } as Part;
+    });
+  } else if (process.env.NODE_ENV === 'production') {
+    partsStore = [];
+  }
+
+  const dbDocuments = await prisma.inventoryDocument.findMany({
+    where: { postingStatus: 'POSTED' },
+    include: {
+      warehouse: true,
+      targetWarehouse: true,
+      createdByUser: true,
+      lines: {
+        include: {
+          part: true,
+          unit: true,
+          materialLot: true,
+          location: true,
+          targetLocation: true,
+        },
+        orderBy: { lineNumber: 'asc' },
+      },
+    },
+    orderBy: { documentDate: 'asc' },
+  });
+
+  if (dbDocuments.length || process.env.NODE_ENV === 'production') {
+    inventoryDocsStore = dbDocuments.map(dbDoc => {
+      const lines: InventoryDocumentLine[] = dbDoc.lines.map(line => {
+        const appPart = partsStore.find(part => part.code === line.part.partNumber);
+        return {
+          id: line.id,
+          documentId: dbDoc.id,
+          lineNumber: line.lineNumber,
+          partId: appPart?.id || line.partId,
+          partCode: line.part.partNumber,
+          partName: line.part.name,
+          materialLotId: line.materialLot?.lotNumber,
+          lotNumber: line.materialLot?.lotNumber,
+          heatNumber: line.materialLot?.heatNumber || undefined,
+          ownership: line.ownership as StockOwnership,
+          contractId: line.contractId || undefined,
+          contractNumber: line.contractNumber || undefined,
+          locationCode: line.location?.code,
+          targetLocationCode: line.targetLocation?.code,
+          quantity: Number(line.quantity),
+          unit: line.unit.code as InventoryDocumentLine['unit'],
+          quantityKg: Number(line.weightKg),
+          qualityStatus: line.qualityStatus as StockQualityStatus,
+          unitCost: line.unitCost == null ? undefined : Number(line.unitCost),
+          notes: line.notes || undefined,
+        };
+      });
+      const firstLine = lines[0];
+      const dbType = dbDoc.documentType;
+      let documentType: InventoryDocType;
+      if (dbType === 'RECEIPT') {
+        documentType = firstLine?.partCode && partsStore.find(p => p.code === firstLine.partCode)?.category === 'FINISHED_GOOD'
+          ? 'RECEIPT_FINISHED_GOODS'
+          : 'RECEIPT_RAW_MATERIAL';
+      } else if (dbType === 'ISSUE') {
+        documentType = dbDoc.referenceNumber?.startsWith('SO-') ? 'DELIVERY_CUSTOMER' : 'ISSUE_RAW_MATERIAL';
+      } else if (dbType === 'WIP_TRANSFER') {
+        documentType = 'TRANSFER';
+      } else if (dbType === 'INITIAL_BALANCE') {
+        documentType = 'OPENING_BALANCE';
+      } else if (dbType === 'RETURN') {
+        documentType = 'REVERSAL';
+      } else {
+        documentType = 'ADJUSTMENT';
+      }
+
+      return {
+        id: dbDoc.id,
+        documentNumber: dbDoc.documentNumber,
+        documentType,
+        documentDate: dbDoc.documentDate.toISOString(),
+        documentStatus: dbDoc.documentStatus as InventoryDocument['documentStatus'],
+        postingStatus: dbDoc.postingStatus as InventoryDocument['postingStatus'],
+        warehouseId: dbDoc.warehouse.code,
+        warehouseName: dbDoc.warehouse.name,
+        targetWarehouseId: dbDoc.targetWarehouse?.code,
+        targetWarehouseName: dbDoc.targetWarehouse?.name,
+        ownership: firstLine?.ownership || 'COMPANY_OWNED',
+        contractId: firstLine?.contractId,
+        contractNumber: firstLine?.contractNumber,
+        referenceType: dbDoc.referenceType || undefined,
+        referenceNumber: dbDoc.referenceNumber || undefined,
+        reversalOfDocumentId: dbDoc.reversalOfId || undefined,
+        adjustmentReason: dbDoc.notes || undefined,
+        auditNote: dbDoc.notes || undefined,
+        lines,
+        totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
+        totalWeightKg: lines.reduce((sum, line) => sum + line.quantityKg, 0),
+        createdByUid: dbDoc.createdByUser.username,
+        createdByName: dbDoc.createdByUser.fullName,
+        postedAt: dbDoc.postedAt?.toISOString(),
+        createdAt: dbDoc.createdAt.toISOString(),
+        updatedAt: dbDoc.updatedAt.toISOString(),
+      };
+    });
+  }
+
+  const dbReservations = await prisma.inventoryReservation.findMany({
+    include: { part: true, warehouse: true, materialLot: true, reservedForMO: true, reservedForCO: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (dbReservations.length) {
+    reservationsStore.splice(0, reservationsStore.length, ...dbReservations.map(row => {
+      const appPart = partsStore.find(part => part.code === row.part.partNumber);
+      return {
+        id: row.id,
+        reservationNumber: row.reservationNumber,
+        partId: appPart?.id || row.partId,
+        partCode: row.part.partNumber,
+        partName: row.part.name,
+        warehouseId: row.warehouse.code,
+        warehouseName: row.warehouse.name,
+        materialLotId: row.materialLot?.lotNumber,
+        lotNumber: row.materialLot?.lotNumber,
+        ownership: 'COMPANY_OWNED',
+        reservedFor: row.reservedForMO?.moNumber || row.reservedForCO?.orderNumber || 'سفارش نامشخص',
+        quantity: Number(row.quantity),
+        quantityKg: Number(row.weightKg),
+        unit: row.part.unit.code as InventoryReservation['unit'],
+        status: row.status as InventoryReservation['status'],
+        validUntil: row.validUntil?.toISOString(),
+        createdAt: row.createdAt.toISOString(),
+      };
+    }));
+  } else if (process.env.NODE_ENV === 'production' && !snapshot) {
+    reservationsStore.splice(0);
+  }
+
+  const dbAudit = await prisma.auditLog.findMany({
+    include: { user: true },
+    orderBy: { timestamp: 'desc' },
+    take: 1000,
+  });
+  if (dbAudit.length || process.env.NODE_ENV === 'production') {
+    auditLogsStore = dbAudit.map(row => ({
+      id: row.id,
+      action: row.action,
+      entityName: row.entityName,
+      entityId: row.entityId,
+      user: { uid: row.user?.username || 'system', displayName: row.user?.fullName || 'سیستم' },
+      details: JSON.stringify(row.newValues || row.oldValues || {}),
+      timestamp: row.timestamp.toISOString(),
+    }));
+  }
+}
 
 let wipMutationQueue: Promise<unknown> = Promise.resolve();
 
