@@ -1525,8 +1525,21 @@ export async function postDocumentInDbTransaction(
           throw new Error(`بچ/کویل «${line.lotNumber || line.materialLotId}» در پایگاه داده ثبت نشده است؛ ابتدا اطلاعات ردیابی آن را ایجاد کنید.`);
         }
 
+        const ownership = line.ownership || document.ownership || 'COMPANY_OWNED';
+        const contractId = line.contractId || document.contractId || null;
+        const contractNumber = line.contractNumber || document.contractNumber || null;
+        const qualityStatus = line.qualityStatus || 'AVAILABLE';
+
         const existingBalance = await tx.stockBalance.findFirst({
-          where: { partId, warehouseId, locationId, materialLotId: lotId },
+          where: {
+            partId,
+            warehouseId,
+            locationId,
+            materialLotId: lotId,
+            ownership,
+            contractId,
+            qualityStatus,
+          },
         });
         const currentQty = Number(existingBalance?.quantityOnHand || 0);
         const currentReserved = Number(existingBalance?.quantityReserved || 0);
@@ -1541,11 +1554,6 @@ export async function postDocumentInDbTransaction(
 
         const quantityAbs = Math.abs(signedQuantity);
         const weightAbs = Math.abs(signedWeightKg);
-        const ownership = line.ownership || document.ownership || 'COMPANY_OWNED';
-        const contractId = line.contractId || document.contractId || null;
-        const contractNumber = line.contractNumber || document.contractNumber || null;
-        const qualityStatus = line.qualityStatus || 'AVAILABLE';
-
         await tx.inventoryTransaction.create({
           data: {
             transactionNumber: `${document.documentNumber}-L${String(line.lineNumber).padStart(3, '0')}-${suffix}`,
@@ -1578,9 +1586,9 @@ export async function postDocumentInDbTransaction(
             where: { id: existingBalance.id },
             data: {
               quantityOnHand: nextQty,
-              quantityAvailable: nextQty - currentReserved,
+              quantityAvailable: qualityStatus === 'AVAILABLE' ? nextQty - currentReserved : 0,
               weightKgOnHand: nextKg,
-              weightKgAvailable: nextKg - currentReservedKg,
+              weightKgAvailable: qualityStatus === 'AVAILABLE' ? nextKg - currentReservedKg : 0,
               lastTransactionAt: now,
             },
           });
@@ -1593,10 +1601,14 @@ export async function postDocumentInDbTransaction(
               materialLotId: lotId,
               quantityOnHand: nextQty,
               quantityReserved: 0,
-              quantityAvailable: nextQty,
+              quantityAvailable: qualityStatus === 'AVAILABLE' ? nextQty : 0,
               weightKgOnHand: nextKg,
               weightKgReserved: 0,
-              weightKgAvailable: nextKg,
+              weightKgAvailable: qualityStatus === 'AVAILABLE' ? nextKg : 0,
+              ownership,
+              contractId,
+              contractNumber,
+              qualityStatus,
               lastTransactionAt: now,
             },
           });
