@@ -232,6 +232,24 @@ async function main() {
     { warehouseCode: 'WH-WIP-STAMP', code: 'LOC-WIP-DRAWN-01', aisle: 'P', rack: 'DRAW', bin: 'D-01', maxCapacityKg: 10000 },
     { warehouseCode: 'WH-FINISHED', code: 'LOC-FIN-PALLET-01', aisle: 'F', rack: 'P-01', bin: 'F-01', maxCapacityKg: 15000 },
     { warehouseCode: 'WH-FINISHED', code: 'LOC-FIN-PALLET-02', aisle: 'F', rack: 'P-02', bin: 'F-02', maxCapacityKg: 15000 },
+
+    // Canonical application location codes used by inventory and WIP screens.
+    { warehouseCode: 'WH-RAW', code: 'LOC-RAW-A1', aisle: 'A', rack: '01', bin: 'A1', maxCapacityKg: 50000 },
+    { warehouseCode: 'WH-RAW', code: 'LOC-RAW-A2', aisle: 'A', rack: '02', bin: 'A2', maxCapacityKg: 50000 },
+    { warehouseCode: 'WH-RAW', code: 'LOC-RAW-B1', aisle: 'B', rack: '01', bin: 'B1', maxCapacityKg: 25000 },
+    { warehouseCode: 'WH-RAW', code: 'LOC-RAW-B2', aisle: 'B', rack: '02', bin: 'B2', maxCapacityKg: 25000 },
+    { warehouseCode: 'WH-WIP-STAMP', code: 'LOC-WIP-BLANK', aisle: 'P', rack: 'BLANK', bin: 'B', maxCapacityKg: 10000 },
+    { warehouseCode: 'WH-WIP-STAMP', code: 'LOC-WIP-DRAWN', aisle: 'P', rack: 'DRAW', bin: 'D', maxCapacityKg: 10000 },
+    { warehouseCode: 'WH-WIP-STAMP', code: 'LOC-WIP-TRIM', aisle: 'P', rack: 'TRIM', bin: 'T', maxCapacityKg: 10000 },
+    { warehouseCode: 'WH-WIP-STAMP', code: 'LOC-WIP-PUNCH', aisle: 'P', rack: 'PUNCH', bin: 'PH', maxCapacityKg: 10000 },
+    { warehouseCode: 'WH-WIP-STAMP', code: 'LOC-WIP-BEND', aisle: 'P', rack: 'BEND', bin: 'BD', maxCapacityKg: 10000 },
+    { warehouseCode: 'WH-WIP-WELD', code: 'LOC-WELD-IN', aisle: 'W', rack: 'IN', bin: 'WI', maxCapacityKg: 10000 },
+    { warehouseCode: 'WH-WIP-WELD', code: 'LOC-WELD-OUT', aisle: 'W', rack: 'OUT', bin: 'WO', maxCapacityKg: 10000 },
+    { warehouseCode: 'WH-WIP-WELD', code: 'LOC-PAINT-IN', aisle: 'W', rack: 'PAINT', bin: 'PI', maxCapacityKg: 10000 },
+    { warehouseCode: 'WH-FINISHED', code: 'LOC-FIN-P1', aisle: 'F', rack: 'P1', bin: 'P1', maxCapacityKg: 15000 },
+    { warehouseCode: 'WH-FINISHED', code: 'LOC-FIN-P2', aisle: 'F', rack: 'P2', bin: 'P2', maxCapacityKg: 15000 },
+    { warehouseCode: 'WH-FINISHED', code: 'LOC-FIN-P3', aisle: 'F', rack: 'P3', bin: 'P3', maxCapacityKg: 15000 },
+    { warehouseCode: 'WH-SCRAP', code: 'LOC-SCRAP-YARD', aisle: 'S', rack: 'YARD', bin: 'SCRAP', maxCapacityKg: 30000 },
   ];
   const locMap: Record<string, string> = {};
   for (const loc of locations) {
