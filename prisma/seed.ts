@@ -361,7 +361,21 @@ async function main() {
   console.log('  -> Seeding Automotive Metal Parts...');
 
   // Representative subset of key automotive stamped parts
-  const partsData = [
+  const partsData: {
+    partNumber: string;
+    name: string;
+    category: PartCategory;
+    unitCode: string;
+    materialCode?: string;
+    thicknessMm?: number;
+    weightNetKg: number;
+    weightGrossKg: number;
+    customerPartNumber?: string;
+    supplierPartNumber?: string;
+    carModel?: string;
+    minSafetyStock: number;
+    maxStock?: number;
+  }[] = [
     // Application canonical master data: codes must match src/server/sampleData.ts
     { partNumber: 'RM-COIL-DC01A-2.0-1140', name: 'رول ورق روغنی DC01A ضخامت 2mm با عرض 1140mm (ابعاد ۲×۱۱۴۰)', category: PartCategory.RAW_MATERIAL, unitCode: 'KG', materialCode: 'MAT-DC01A', thicknessMm: 2.0, weightNetKg: 1.0, weightGrossKg: 1.0, supplierPartNumber: 'SAP-RAW-DC01-1140', carModel: 'پژو ۲۰۶ و ۲۰۷', minSafetyStock: 4000, maxStock: 25000 },
     { partNumber: 'RM-SHT-DC01A-2.0-1000', name: 'ورق شیت روغنی DC01A ضخامت 2mm ابعاد ۲×۱۰۰۰ (ورق آلترناتیو)', category: PartCategory.RAW_MATERIAL, unitCode: 'KG', materialCode: 'MAT-DC01A', thicknessMm: 2.0, weightNetKg: 1.0, weightGrossKg: 1.0, supplierPartNumber: 'SAP-RAW-DC01-ALT', carModel: 'پژو ۲۰۶ و ۲۰۷', minSafetyStock: 2000, maxStock: 15000 },
