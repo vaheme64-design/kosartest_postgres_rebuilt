@@ -518,7 +518,7 @@ export async function loadInventoryAppState(): Promise<void> {
   }
 
   const dbReservations = await prisma.inventoryReservation.findMany({
-    include: { part: true, warehouse: true, materialLot: true, reservedForMO: true, reservedForCO: true },
+    include: { part: { include: { unit: true } }, warehouse: true, materialLot: true, reservedForMO: true, reservedForCO: true },
     orderBy: { createdAt: 'asc' },
   });
   if (dbReservations.length) {
