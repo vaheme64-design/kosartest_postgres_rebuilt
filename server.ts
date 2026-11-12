@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
-import { apiRouter } from './src/server/apiRouter';
+import { apiRouter, loadInventoryAppState } from './src/server/apiRouter';
 import { resolveDatabaseUrl } from './src/server/db/prisma';
 import { loadProductionWipState } from './src/server/productionWipEngine';
 
@@ -25,6 +25,8 @@ const PORT = Number(process.env.PORT) || portFromArgs || 3000;
 const HOST = process.env.HOST || hostFromArgs || '0.0.0.0';
 
 async function startServer() {
+  // Restore relational inventory data and custom coil/contract state before exposing API routes.
+  await loadInventoryAppState();
   // Load durable WIP state before exposing API routes.
   await loadProductionWipState();
 
