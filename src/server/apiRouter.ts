@@ -1799,6 +1799,9 @@ apiRouter.post('/demo-data/seed', async (_req: Request, res: Response) => {
   reseedCustomerOrdersAndPlans();
   reseedProductionWipData();
   await persistProductionWipState();
+  auditLogsStore.length = 0;
+  auditLogsStore.push(...INITIAL_AUDIT_LOGS);
+  await persistInventoryAppState();
 
   const summary = calculateInventoryLedger(transactionsStore, partsStore);
   res.json({
@@ -1829,6 +1832,8 @@ apiRouter.post('/demo-data/clean', async (_req: Request, res: Response) => {
   contractsStore.length = 0;
   reservationsStore.length = 0;
   coilIssueRecordsStore.length = 0;
+  auditLogsStore.length = 0;
+  for (const key of Object.keys(serverQcHoldStore)) delete serverQcHoldStore[key];
 
   clearCustomerOrdersAndPlans();
   clearProductionWipData();
@@ -1838,6 +1843,7 @@ apiRouter.post('/demo-data/clean', async (_req: Request, res: Response) => {
     const prisma = getPrismaClient();
     if (prisma) {
       await prisma.wipStateSnapshot.deleteMany({});
+      await prisma.inventoryAppStateSnapshot.deleteMany({});
       await prisma.productionScrap.deleteMany({}).catch(() => {});
       await prisma.machineAssignment.deleteMany({}).catch(() => {});
       await prisma.productionReport.deleteMany({}).catch(() => {});
@@ -1864,6 +1870,9 @@ apiRouter.post('/demo-data/clean', async (_req: Request, res: Response) => {
   } catch (dbErr) {
     console.warn('Prisma tables wipe notice:', dbErr);
   }
+
+  await persistInventoryAppState();
+  await persistProductionWipState();
 
   const summary = calculateInventoryLedger(transactionsStore, partsStore);
   res.json({
