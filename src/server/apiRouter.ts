@@ -2552,7 +2552,7 @@ apiRouter.get('/inventory/stock-inquiry', (req: Request, res: Response) => {
 /**
  * 16.8.1 Toggle QC Hold (قرنطینه کیفی) on Warehouse Stock Row or Coil
  */
-apiRouter.post('/inventory/qc-hold', (req: Request, res: Response) => {
+apiRouter.post('/inventory/qc-hold', async (req: Request, res: Response) => {
   try {
     const { key, partId, partCode, materialGrade, lotNumber, isHeld, heldQty, heldWeightKg, reasonFa } = req.body;
     if (!key) {
@@ -2585,6 +2585,7 @@ apiRouter.post('/inventory/qc-hold', (req: Request, res: Response) => {
       targetCoil.physicalStatus = isHeld ? 'BLOCKED' : targetCoil.remainingWeightKg > 0 ? 'AVAILABLE' : 'CONSUMED';
     }
 
+    await persistInventoryAppState();
     res.json({
       success: true,
       message: isHeld
@@ -2671,7 +2672,7 @@ apiRouter.get('/inventory/reservations', (_req: Request, res: Response) => {
   res.json({ success: true, count: reservationsStore.length, data: reservationsStore });
 });
 
-apiRouter.post('/inventory/reservations', (req: Request, res: Response) => {
+apiRouter.post('/inventory/reservations', async (req: Request, res: Response) => {
   try {
     const payload = req.body;
     if (!payload.partId || !payload.warehouseId || !payload.quantity) {
@@ -2720,6 +2721,7 @@ apiRouter.post('/inventory/reservations', (req: Request, res: Response) => {
     };
 
     reservationsStore.unshift(newRes);
+    await persistInventoryAppState();
     res.status(201).json({ success: true, message: 'رزرو موجودی با موفقیت ثبت شد.', data: newRes });
   } catch (error) {
     res.status(500).json({
@@ -2729,7 +2731,7 @@ apiRouter.post('/inventory/reservations', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/inventory/reservations/:id/release', (req: Request, res: Response) => {
+apiRouter.post('/inventory/reservations/:id/release', async (req: Request, res: Response) => {
   const { id } = req.params;
   const resIndex = reservationsStore.findIndex(r => r.id === id);
   if (resIndex === -1) {
@@ -2737,6 +2739,7 @@ apiRouter.post('/inventory/reservations/:id/release', (req: Request, res: Respon
   }
 
   reservationsStore[resIndex].status = 'RELEASED';
+  await persistInventoryAppState();
   res.json({ success: true, message: 'رزرو با موفقیت آزاد گردید و به موجودی قابل استفاده بازگشت.', data: reservationsStore[resIndex] });
 });
 
@@ -2828,7 +2831,7 @@ apiRouter.get('/inventory/contracts', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/inventory/contracts', (req: Request, res: Response) => {
+apiRouter.post('/inventory/contracts', async (req: Request, res: Response) => {
   try {
     const payload = req.body;
     if (!payload.contractNumber || !payload.title) {
@@ -2912,6 +2915,7 @@ apiRouter.post('/inventory/contracts', (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
 
+    await persistInventoryAppState();
     res.status(201).json({
       success: true,
       message: `قرارداد شماره «${newContract.contractNumber}» با موفقیت در سیستم ثبت گردید.`,
@@ -2925,7 +2929,7 @@ apiRouter.post('/inventory/contracts', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.put('/inventory/contracts/:id', (req: Request, res: Response) => {
+apiRouter.put('/inventory/contracts/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const payload = req.body;
@@ -2974,6 +2978,7 @@ apiRouter.put('/inventory/contracts/:id', (req: Request, res: Response) => {
 
     contractsStore[contractIndex] = updated;
 
+    await persistInventoryAppState();
     res.json({
       success: true,
       message: `قرارداد شماره «${updated.contractNumber}» به‌روزرسانی شد و در تاریخچه ویرایش‌ها ثبت گردید.`,
@@ -2987,7 +2992,7 @@ apiRouter.put('/inventory/contracts/:id', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.delete('/inventory/contracts/:id', (req: Request, res: Response) => {
+apiRouter.delete('/inventory/contracts/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const contract = contractsStore.find(c => c.id === id || c.contractNumber === id);
@@ -3003,6 +3008,7 @@ apiRouter.delete('/inventory/contracts/:id', (req: Request, res: Response) => {
     if (hasMovements) {
       // Soft-cancel instead of hard delete to preserve Kardex integrity
       contract.status = 'SUSPENDED';
+      await persistInventoryAppState();
       return res.json({
         success: true,
         message: `قرارداد «${contract.contractNumber}» به دلیل داشتن گردش کاردکس قطعی، به وضعیت «تعلیق» تغییر یافت و سوابق آن حفظ شد.`,
@@ -3011,6 +3017,7 @@ apiRouter.delete('/inventory/contracts/:id', (req: Request, res: Response) => {
     }
 
     contractsStore = contractsStore.filter(c => c.id !== contract.id);
+    await persistInventoryAppState();
     res.json({
       success: true,
       message: `قرارداد «${contract.contractNumber}» با موفقیت حذف گردید.`,
@@ -3023,7 +3030,7 @@ apiRouter.delete('/inventory/contracts/:id', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/inventory/contracts/:id/allocate-coil', (req: Request, res: Response) => {
+apiRouter.post('/inventory/contracts/:id/allocate-coil', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { coilId, allocatedWeightKg, notes } = req.body;
@@ -3065,6 +3072,7 @@ apiRouter.post('/inventory/contracts/:id/allocate-coil', (req: Request, res: Res
       coil.allocations.push(allocRecord);
     }
 
+    await persistInventoryAppState();
     res.json({
       success: true,
       message: `مقدار ${weight} کیلوگرم از کلاف «${coil.coilId}» (پکینگ: ${coil.coilPackNumber}) به قرارداد «${contract.contractNumber}» تخصیص یافت.`,
@@ -3134,7 +3142,7 @@ apiRouter.get('/inventory/coils', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/inventory/coils', (req: Request, res: Response) => {
+apiRouter.post('/inventory/coils', async (req: Request, res: Response) => {
   try {
     const payload = req.body;
     if (!payload.coilId || !payload.partId || !payload.originalWeightKg || !payload.warehouseId) {
@@ -3222,6 +3230,7 @@ apiRouter.post('/inventory/coils', (req: Request, res: Response) => {
     };
     inventoryDocsStore.unshift(autoDoc);
 
+    await persistInventoryAppState();
     res.status(201).json({
       success: true,
       message: `کلاف فیزیکی شماره «${newCoil.coilId}» (پکینگ ${newCoil.coilPackNumber}) در انبار و گزارش‌ها با موفقیت ثبت گردید.`,
@@ -3235,7 +3244,7 @@ apiRouter.post('/inventory/coils', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/inventory/coils/:id/issue', (req: Request, res: Response) => {
+apiRouter.post('/inventory/coils/:id/issue', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { issuedWeightKg, moId, moOperationId, scrappedKg, user, multiParts } = req.body;
@@ -3316,6 +3325,7 @@ apiRouter.post('/inventory/coils/:id/issue', (req: Request, res: Response) => {
       coilIssueRecordsStore.unshift(result.issueRecord);
     }
 
+    await persistInventoryAppState();
     res.json({
       success: true,
       message: `مقدار ${issuedWeightKg} کیلوگرم از کلاف «${coil.coilId}» جهت خط تولید صادر شد. مانده کلاف: ${coil.remainingWeightKg} کیلوگرم.`,
@@ -3389,7 +3399,7 @@ apiRouter.get('/inventory/coils/:id/genealogy', (req: Request, res: Response) =>
   }
 });
 
-apiRouter.post('/inventory/coils/:id/return', (req: Request, res: Response) => {
+apiRouter.post('/inventory/coils/:id/return', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { returnedRemnantWeightKg, warehouseId, locationCode, notes, user } = req.body;
@@ -3421,6 +3431,7 @@ apiRouter.post('/inventory/coils/:id/return', (req: Request, res: Response) => {
       coilIssueRecordsStore.unshift(result.returnRecord);
     }
 
+    await persistInventoryAppState();
     res.json({
       success: true,
       message: `ته‌کلاف / مازاد به وزن ${returnedRemnantWeightKg} کیلوگرم با حفظ پکینگ اصلی (${coil.coilPackNumber}) به انبار برگشت داده شد. مانده جدید کلاف: ${coil.remainingWeightKg} کیلوگرم.`,
@@ -3435,7 +3446,7 @@ apiRouter.post('/inventory/coils/:id/return', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/inventory/coils/:id/allocate', (req: Request, res: Response) => {
+apiRouter.post('/inventory/coils/:id/allocate', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { allocations } = req.body;
@@ -3465,6 +3476,7 @@ apiRouter.post('/inventory/coils/:id/allocate', (req: Request, res: Response) =>
       ownership: a.ownership || coil.ownership,
     }));
 
+    await persistInventoryAppState();
     res.json({
       success: true,
       message: `تخصیص چندقراردادی کلاف شماره «${coil.coilId}» به‌روزرسانی شد.`,
