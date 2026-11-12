@@ -984,10 +984,14 @@ model StockBalance {
   weightKgOnHand       Decimal            @default(0) // وزن فیزیکی (کیلوگرم)
   weightKgReserved     Decimal            @default(0) // وزن رزرو شده (کیلوگرم)
   weightKgAvailable    Decimal            @default(0) // وزن آزاد (کیلوگرم)
+  ownership            String             @default("COMPANY_OWNED")
+  contractId           String?
+  contractNumber       String?
+  qualityStatus        String             @default("AVAILABLE")
   lastTransactionAt    DateTime?
   updatedAt            DateTime           @updatedAt
 
-  @@unique([partId, warehouseId, locationId, materialLotId])
+  @@unique([partId, warehouseId, locationId, materialLotId, ownership, contractId, qualityStatus])
   @@index([partId, warehouseId])
   @@map("stock_balances")
 }
