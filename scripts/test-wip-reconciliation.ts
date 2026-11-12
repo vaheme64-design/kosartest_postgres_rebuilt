@@ -23,9 +23,11 @@ function runAssertion(desc: string, condition: boolean) {
 async function runWipReconciliationTests() {
   console.log('🧪 Starting KPIMS Production Execution & WIP Module Reconciliation Test Suite...\n');
 
-  // Find part with multi-operation route (SAPCO-ASSY-206-001 has 8 operations)
-  const part = INITIAL_PARTS.find(p => p.code === 'SAPCO-ASSY-206-001') || INITIAL_PARTS[33];
-  const routing = INITIAL_ROUTINGS.find(r => r.partId === part.id || r.partCode === part.code) || INITIAL_ROUTINGS[0];
+  // Use the canonical application part catalog instead of a stale array index.
+  const part = INITIAL_PARTS.find(p => p.code === 'WIP-ECU-MAIN-BRK');
+  if (!part) throw new Error('Canonical WIP test part WIP-ECU-MAIN-BRK is missing.');
+  const routing = INITIAL_ROUTINGS.find(r => r.partId === part.id || r.partCode === part.code);
+  if (!routing) throw new Error(`No routing found for canonical WIP test part ${part.code}.`);
 
   console.log(`📋 Route under test: ${routing.partName} (${routing.partCode})`);
   console.log(`   Route Version: ${routing.version}, Operations count: ${routing.operations.length}\n`);
