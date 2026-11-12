@@ -58,11 +58,11 @@ export async function persistProductionWipState(): Promise<void> {
   }
 
   const prisma = getPrismaClient();
-  const payload = {
+  const payload = JSON.parse(JSON.stringify({
     manufacturingOrders: manufacturingOrdersStore,
     wipTransfers: wipTransfersStore,
     productionLogs: productionLogsStore,
-  };
+  }));
 
   await prisma.wipStateSnapshot.upsert({
     where: { id: WIP_SNAPSHOT_ID },
