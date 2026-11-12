@@ -313,7 +313,17 @@ async function runProductionPlanningTests() {
     requiredTonnage: 200,
     plannedQuantity: 400,
     standardCycleTimeSec: 10,
-    assignedDieCode: 'DIE-TAR-BUM-DRAW', // die requires PRS-800-01 bolster
+    assignedDieCode: 'DIE-TAR-BUM-DRAW',
+    dies: [
+      ...INITIAL_DIES_MOLDS,
+      {
+        ...INITIAL_DIES_MOLDS[0],
+        id: 'DIE-TAR-BUM-DRAW',
+        code: 'DIE-TAR-BUM-DRAW',
+        processType: 'BLANKING',
+        compatibleMachineCodes: ['PRS-800-01'],
+      },
+    ],
   });
   const aydinPress250 = dieIncompatibleCandidates.find(m => m.machineCode === 'PRS-250-01')!;
   runAssertion('Machine rejected when die bolster/clamps are incompatible', !aydinPress250.dieCompatible && !aydinPress250.isEligible);
