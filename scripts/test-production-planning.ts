@@ -406,6 +406,21 @@ async function runProductionPlanningTests() {
   // TEST GROUP 7: Planning Dashboard Metrics
   // =========================================================================
   console.log('\n📋 Test Group 7: Planning Dashboard Metrics');
+  // Use an intentionally high dashboard demand so the critical-parts panel must contain this part
+  // even after the seeded finished-goods balance is netted.
+  customerOrdersStore.splice(0, customerOrdersStore.length, {
+    ...testOrders[0],
+    id: 'TEST-DASHBOARD-ORDER',
+    orderNumber: 'SO-TEST-DASHBOARD',
+    lines: testOrders[0].lines.map(line => ({
+      ...line,
+      id: 'LN-DASHBOARD-01',
+      orderId: 'TEST-DASHBOARD-ORDER',
+      orderedQuantity: 10000,
+      remainingQuantity: 10000,
+    })),
+  });
+
   const metrics = getPlanningDashboardMetrics();
   runAssertion('Total open orders counted', metrics.totalOpenOrdersCount >= 1);
   runAssertion('Gross demand pieces aggregated', metrics.totalGrossDemandPieces > 0);
