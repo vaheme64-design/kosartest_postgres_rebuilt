@@ -21,7 +21,11 @@ import { INITIAL_PARTS } from '../src/server/sampleData';
 const prisma = getPrismaClient();
 
 async function main() {
-  console.log('🌱 Starting KPIMS Relational Database Seed...');
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED !== 'true') {
+    throw new Error('Demo seed is blocked in production. Use `bun run seed:master` for canonical master data only.');
+  }
+
+  console.log('🌱 Starting KPIMS Relational Database Demo Seed...');
 
   // -------------------------------------------------------------------------
   // 1. CONTROL DATA: Roles & Permissions
