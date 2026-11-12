@@ -860,67 +860,65 @@ async function main() {
     },
   });
 
-  // Stock Balance Snapshot
-  await prisma.stockBalance.upsert({
-    where: {
-      partId_warehouseId_locationId_materialLotId: {
-        partId: partMap['SAP-COIL-DC04-08'],
-        warehouseId: whMap['WH-RAW'],
-        locationId: locMap['LOC-RAW-COIL-01'],
-        materialLotId: lotMap['COIL-SAP-1403-0498'],
-      },
-    },
-    update: {
-      quantityOnHand: 8750,
-      quantityAvailable: 8750,
-      weightKgOnHand: 8750,
-      weightKgAvailable: 8750,
-    },
-    create: {
-      partId: partMap['SAP-COIL-DC04-08'],
-      warehouseId: whMap['WH-RAW'],
-      locationId: locMap['LOC-RAW-COIL-01'],
-      materialLotId: lotMap['COIL-SAP-1403-0498'],
-      quantityOnHand: 8750,
-      quantityReserved: 0,
-      quantityAvailable: 8750,
-      weightKgOnHand: 8750,
-      weightKgReserved: 0,
-      weightKgAvailable: 8750,
-      lastTransactionAt: new Date('2024-10-28T08:00:00.000Z'),
-    },
-  });
+  // Stock Balance Snapshot (ownership/contract/quality-aware key)
+  const rawBalanceWhere = {
+    partId: partMap['SAP-COIL-DC04-08'],
+    warehouseId: whMap['WH-RAW'],
+    locationId: locMap['LOC-RAW-COIL-01'],
+    materialLotId: lotMap['COIL-SAP-1403-0498'],
+    ownership: 'COMPANY_OWNED',
+    contractId: null,
+    qualityStatus: 'AVAILABLE',
+  };
+  const rawBalance = await prisma.stockBalance.findFirst({ where: rawBalanceWhere });
+  const rawBalanceData = {
+    quantityOnHand: 8750,
+    quantityReserved: 0,
+    quantityAvailable: 8750,
+    weightKgOnHand: 8750,
+    weightKgReserved: 0,
+    weightKgAvailable: 8750,
+    ownership: 'COMPANY_OWNED',
+    contractId: null,
+    contractNumber: null,
+    qualityStatus: 'AVAILABLE',
+    lastTransactionAt: new Date('2024-10-28T08:00:00.000Z'),
+  };
+  if (rawBalance) {
+    await prisma.stockBalance.update({ where: { id: rawBalance.id }, data: rawBalanceData });
+  } else {
+    await prisma.stockBalance.create({ data: { ...rawBalanceWhere, ...rawBalanceData } });
+  }
 
   // Finished Goods stock balance
-  await prisma.stockBalance.upsert({
-    where: {
-      partId_warehouseId_locationId_materialLotId: {
-        partId: partMap['IKCO-206-BRK01'],
-        warehouseId: whMap['WH-FINISHED'],
-        locationId: locMap['LOC-FIN-PALLET-01'],
-        materialLotId: lotMap['COIL-SAP-1403-0498'], // traced back to parent lot
-      },
-    },
-    update: {
-      quantityOnHand: 1850,
-      quantityAvailable: 1850,
-      weightKgOnHand: 3182,
-      weightKgAvailable: 3182,
-    },
-    create: {
-      partId: partMap['IKCO-206-BRK01'],
-      warehouseId: whMap['WH-FINISHED'],
-      locationId: locMap['LOC-FIN-PALLET-01'],
-      materialLotId: lotMap['COIL-SAP-1403-0498'],
-      quantityOnHand: 1850,
-      quantityReserved: 0,
-      quantityAvailable: 1850,
-      weightKgOnHand: 3182,
-      weightKgReserved: 0,
-      weightKgAvailable: 3182,
-      lastTransactionAt: new Date('2024-10-28T16:00:00.000Z'),
-    },
-  });
+  const finishedBalanceWhere = {
+    partId: partMap['IKCO-206-BRK01'],
+    warehouseId: whMap['WH-FINISHED'],
+    locationId: locMap['LOC-FIN-PALLET-01'],
+    materialLotId: lotMap['COIL-SAP-1403-0498'],
+    ownership: 'COMPANY_OWNED',
+    contractId: null,
+    qualityStatus: 'AVAILABLE',
+  };
+  const finishedBalance = await prisma.stockBalance.findFirst({ where: finishedBalanceWhere });
+  const finishedBalanceData = {
+    quantityOnHand: 1850,
+    quantityReserved: 0,
+    quantityAvailable: 1850,
+    weightKgOnHand: 3182,
+    weightKgReserved: 0,
+    weightKgAvailable: 3182,
+    ownership: 'COMPANY_OWNED',
+    contractId: null,
+    contractNumber: null,
+    qualityStatus: 'AVAILABLE',
+    lastTransactionAt: new Date('2024-10-28T16:00:00.000Z'),
+  };
+  if (finishedBalance) {
+    await prisma.stockBalance.update({ where: { id: finishedBalance.id }, data: finishedBalanceData });
+  } else {
+    await prisma.stockBalance.create({ data: { ...finishedBalanceWhere, ...finishedBalanceData } });
+  }
 
   // Finished goods ledger transaction
   await prisma.inventoryTransaction.upsert({
