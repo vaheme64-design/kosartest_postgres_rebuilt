@@ -2077,7 +2077,7 @@ apiRouter.post('/inventory/documents', (req: Request, res: Response) => {
 /**
  * 16.6. Atomic Post Document
  */
-apiRouter.post('/inventory/documents/:id/post', (req: Request, res: Response) => {
+apiRouter.post('/inventory/documents/:id/post', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { user } = req.body;
@@ -2093,6 +2093,15 @@ apiRouter.post('/inventory/documents/:id/post', (req: Request, res: Response) =>
       displayName: user?.displayName || 'مدیر انبار',
     };
 
+    const previousState = {
+      postingStatus: doc.postingStatus,
+      documentStatus: doc.documentStatus,
+      postedByUid: doc.postedByUid,
+      postedByName: doc.postedByName,
+      postedAt: doc.postedAt,
+      updatedAt: doc.updatedAt,
+    };
+
     const postResult = atomicPostDocument(
       doc,
       inventoryDocsStore,
@@ -2105,18 +2114,23 @@ apiRouter.post('/inventory/documents/:id/post', (req: Request, res: Response) =>
       return res.status(400).json({ success: false, error: postResult.error });
     }
 
+    // A successful response is sent only after the PostgreSQL transaction commits.
+    const dbResult = await postDocumentInDbTransaction(doc, postUser);
+    if (!dbResult.success) {
+      Object.assign(doc, previousState);
+      return res.status(409).json({
+        success: false,
+        error: dbResult.error || 'ثبت سند در PostgreSQL انجام نشد؛ وضعیت سند به حالت قبل بازگردانده شد.',
+      });
+    }
+
     if (postResult.auditRecord) {
       auditLogsStore.unshift(postResult.auditRecord);
     }
 
-    // Persist to PostgreSQL via Prisma transaction
-    postDocumentInDbTransaction(doc, postUser).catch(err => {
-      console.warn('PostgreSQL Prisma transaction background warning:', err?.message || err);
-    });
-
-    res.json({
+    return res.json({
       success: true,
-      message: `سند شماره «${doc.documentNumber}» با موفقیت در کاردکس و موجودی رسمی ثبت قطعی گردید.`,
+      message: `سند شماره «${doc.documentNumber}» با موفقیت در PostgreSQL، کاردکس و موجودی رسمی ثبت قطعی گردید.`,
       data: doc,
     });
   } catch (error) {
