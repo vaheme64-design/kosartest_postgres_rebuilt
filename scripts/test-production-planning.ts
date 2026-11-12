@@ -275,7 +275,17 @@ async function runProductionPlanningTests() {
     requiredTonnage: 800,
     plannedQuantity: 500,
     standardCycleTimeSec: 25,
-    assignedDieCode: 'DIE-TAR-BUM-DRAW', // only compatible with PRS-800-01
+    assignedDieCode: 'DIE-TAR-BUM-DRAW', // test fixture: only compatible with PRS-800-01
+    dies: [
+      ...INITIAL_DIES_MOLDS,
+      {
+        ...INITIAL_DIES_MOLDS[0],
+        id: 'DIE-TAR-BUM-DRAW',
+        code: 'DIE-TAR-BUM-DRAW',
+        processType: 'DRAWING',
+        compatibleMachineCodes: ['PRS-800-01'],
+      },
+    ],
   });
 
   const heavyPress800 = drawingOpCandidates.find(m => m.machineCode === 'PRS-800-01')!;
@@ -327,6 +337,18 @@ async function runProductionPlanningTests() {
   });
   const aydinPress250 = dieIncompatibleCandidates.find(m => m.machineCode === 'PRS-250-01')!;
   runAssertion('Machine rejected when die bolster/clamps are incompatible', !aydinPress250.dieCompatible && !aydinPress250.isEligible);
+
+  const unknownDieCandidates = evaluateMachineEligibility({
+    processType: 'DRAWING',
+    requiredTonnage: 100,
+    plannedQuantity: 100,
+    standardCycleTimeSec: 10,
+    assignedDieCode: 'DIE-NOT-IN-MASTER-DATA',
+  });
+  runAssertion(
+    'Unknown assigned die fails closed and no machine is considered compatible',
+    unknownDieCandidates.every(m => !m.dieCompatible && !m.isEligible)
+  );
 
   // =========================================================================
   // TEST GROUP 5: Capacity Load, Runtime & Due Date Estimation
