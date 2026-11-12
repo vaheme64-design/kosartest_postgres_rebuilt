@@ -2129,7 +2129,7 @@ apiRouter.get('/inventory/documents/:id', (req: Request, res: Response) => {
 /**
  * 16.5. Create Inventory Document (Draft or Auto-post)
  */
-apiRouter.post('/inventory/documents', (req: Request, res: Response) => {
+apiRouter.post('/inventory/documents', async (req: Request, res: Response) => {
   try {
     const payload = req.body;
     const autoPost = payload.autoPost === true;
@@ -2232,6 +2232,7 @@ apiRouter.post('/inventory/documents', (req: Request, res: Response) => {
         uid: payload.user?.uid || 'USR-OP-01',
         displayName: payload.user?.displayName || 'کاربر سیستم',
       };
+      const previousReservations = JSON.parse(JSON.stringify(reservationsStore)) as InventoryReservation[];
       const postResult = atomicPostDocument(
         newDoc,
         inventoryDocsStore,
@@ -2242,6 +2243,13 @@ apiRouter.post('/inventory/documents', (req: Request, res: Response) => {
 
       if (!postResult.success) {
         return res.status(400).json({ success: false, error: postResult.error });
+      }
+
+      // Do not report a posted document until the relational ledger transaction commits.
+      const dbResult = await postDocumentInDbTransaction(newDoc, user);
+      if (!dbResult.success) {
+        reservationsStore.splice(0, reservationsStore.length, ...previousReservations);
+        return res.status(409).json({ success: false, error: dbResult.error || 'ثبت قطعی در PostgreSQL ناموفق بود.' });
       }
 
       inventoryDocsStore.unshift(newDoc);
@@ -2330,10 +2338,7 @@ apiRouter.post('/inventory/documents', (req: Request, res: Response) => {
         }
       }
 
-      // Persist to PostgreSQL via Prisma transaction
-      postDocumentInDbTransaction(newDoc, user).catch(err => {
-        console.warn('PostgreSQL Prisma transaction background warning:', err?.message || err);
-      });
+      await persistInventoryAppState();
 
       return res.status(201).json({
         success: true,
@@ -2343,6 +2348,7 @@ apiRouter.post('/inventory/documents', (req: Request, res: Response) => {
     }
 
     inventoryDocsStore.unshift(newDoc);
+    await persistInventoryAppState();
     res.status(201).json({
       success: true,
       message: `پیش‌نویس سند شماره «${newDoc.documentNumber}» ثبت شد. توجه: پیش‌نویس تا زمان ثبت قطعی در کاردکس اثر ندارد.`,
@@ -2409,6 +2415,9 @@ apiRouter.post('/inventory/documents/:id/post', async (req: Request, res: Respon
     if (postResult.auditRecord) {
       auditLogsStore.unshift(postResult.auditRecord);
     }
+    await persistInventoryAppState().catch(err => {
+      console.warn('Inventory app-state snapshot warning after committed ledger post:', err?.message || err);
+    });
 
     return res.json({
       success: true,
@@ -2426,7 +2435,7 @@ apiRouter.post('/inventory/documents/:id/post', async (req: Request, res: Respon
 /**
  * 16.7. Reversal Document (Document Correction)
  */
-apiRouter.post('/inventory/documents/:id/reverse', (req: Request, res: Response) => {
+apiRouter.post('/inventory/documents/:id/reverse', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { reason, user } = req.body;
@@ -2455,6 +2464,7 @@ apiRouter.post('/inventory/documents/:id/reverse', (req: Request, res: Response)
     if (reversalResult.auditRecord) {
       auditLogsStore.unshift(reversalResult.auditRecord);
     }
+    await persistInventoryAppState();
 
     res.json({
       success: true,
