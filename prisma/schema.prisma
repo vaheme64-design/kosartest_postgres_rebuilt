@@ -1652,3 +1652,15 @@ model DowntimeLog {
   @@map("downtime_logs")
 }
 
+
+
+// Persistent snapshot for stage-level WIP execution.
+// The snapshot preserves the application's complete operation-level quantities and transfer states
+// until the relational routing/operation migration is completed.
+model WipStateSnapshot {
+  id        String   @id
+  payload   Json
+  updatedAt DateTime @updatedAt
+
+  @@map("wip_state_snapshots")
+}
