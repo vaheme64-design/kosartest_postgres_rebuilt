@@ -322,17 +322,7 @@ let shiftsStore: ShiftDefinition[] = [
     status: 'ACTIVE',
   },
 ];
-let savedReportsStore: SavedReportConfig[] = [
-  {
-    id: 'REP-CFG-01',
-    name: 'موجودی کل کلاف‌ها بر اساس پکینگ و گرید',
-    reportType: 'COILS_SUMMARY',
-    selectedColumns: ['materialGrade', 'thicknessMm', 'widthMm', 'coilPackNumber', 'totalCoilsCount', 'totalRemainingWeightKg'],
-    groupBy: ['materialGrade', 'coilPackNumber'],
-    filters: {},
-    createdAt: new Date().toISOString(),
-  },
-];
+// Saved report configurations are persisted in PostgreSQL, not in process memory.
 let importBatchesStore: ImportBatchSummary[] = [];
 
 
@@ -4041,33 +4031,102 @@ apiRouter.get('/inventory/custom-reports', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get('/inventory/report-configs', (_req: Request, res: Response) => {
-  res.json({ success: true, count: savedReportsStore.length, data: savedReportsStore });
-});
-
-apiRouter.post('/inventory/report-configs', (req: Request, res: Response) => {
+apiRouter.get('/inventory/report-configs', async (_req: Request, res: Response) => {
   try {
-    const payload = req.body;
-    if (!payload.name || !payload.reportType) {
-      return res.status(400).json({ success: false, error: 'نام گزارش و نوع گزارش الزامی است.' });
-    }
-
-    const newConfig: SavedReportConfig = {
-      id: payload.id || `REP-CFG-${Date.now()}`,
-      name: payload.name,
-      reportType: payload.reportType,
-      selectedColumns: payload.selectedColumns || [],
-      groupBy: payload.groupBy || [],
-      filters: payload.filters || {},
-      createdAt: new Date().toISOString(),
-    };
-
-    savedReportsStore.unshift(newConfig);
-    res.status(201).json({ success: true, message: 'پیکربندی گزارش با موفقیت ذخیره شد.', data: newConfig });
-  } catch (error) {
+    const records = await getPrismaClient().savedReportConfig.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
+    const data: SavedReportConfig[] = records.map(record => ({
+      id: record.id,
+      name: record.name,
+      reportType: record.reportType as SavedReportConfig['reportType'],
+      selectedColumns: Array.isArray(record.selectedColumns) ? record.selectedColumns as string[] : [],
+      groupBy: Array.isArray(record.groupBy) ? record.groupBy as string[] : [],
+      filters: record.filters && typeof record.filters === 'object' && !Array.isArray(record.filters)
+        ? record.filters as Record<string, any>
+        : {},
+      sortBy: record.sortBy || undefined,
+      sortOrder: record.sortOrder === 'desc' ? 'desc' : 'asc',
+      createdAt: record.createdAt.toISOString(),
+    }));
+    res.json({ success: true, count: data.length, data });
+  } catch (err) {
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'خطا در ذخیره پیکربندی گزارش',
+      error: err instanceof Error ? err.message : 'خطا در دریافت پیکربندی گزارش‌ها از PostgreSQL',
+    });
+  }
+});
+
+apiRouter.post('/inventory/report-configs', async (req: Request, res: Response) => {
+  try {
+    const payload = req.body || {};
+    const allowedReportTypes = new Set([
+      'COILS_SUMMARY',
+      'COIL_PACK_INQUIRY',
+      'CONTRACT_STOCK',
+      'WAREHOUSE_STOCK',
+      'OWNERSHIP_REPORT',
+      'CUSTOM',
+    ]);
+    if (typeof payload.name !== 'string' || !payload.name.trim() || !allowedReportTypes.has(payload.reportType)) {
+      return res.status(400).json({ success: false, error: 'نام معتبر گزارش و نوع گزارش مجاز الزامی است.' });
+    }
+
+    const id = typeof payload.id === 'string' && payload.id.trim()
+      ? payload.id.trim()
+      : `REP-CFG-${Date.now()}`;
+    const selectedColumns = Array.isArray(payload.selectedColumns)
+      ? payload.selectedColumns.filter((value: unknown): value is string => typeof value === 'string')
+      : [];
+    const groupBy = Array.isArray(payload.groupBy)
+      ? payload.groupBy.filter((value: unknown): value is string => typeof value === 'string')
+      : [];
+    const filters = payload.filters && typeof payload.filters === 'object' && !Array.isArray(payload.filters)
+      ? payload.filters
+      : {};
+    const sortBy = typeof payload.sortBy === 'string' && payload.sortBy.trim() ? payload.sortBy.trim() : null;
+    const sortOrder = payload.sortOrder === 'desc' ? 'desc' : 'asc';
+
+    const record = await getPrismaClient().savedReportConfig.upsert({
+      where: { id },
+      create: {
+        id,
+        name: payload.name.trim(),
+        reportType: payload.reportType,
+        selectedColumns,
+        groupBy,
+        filters,
+        sortBy,
+        sortOrder,
+      },
+      update: {
+        name: payload.name.trim(),
+        reportType: payload.reportType,
+        selectedColumns,
+        groupBy,
+        filters,
+        sortBy,
+        sortOrder,
+      },
+    });
+
+    const data: SavedReportConfig = {
+      id: record.id,
+      name: record.name,
+      reportType: record.reportType as SavedReportConfig['reportType'],
+      selectedColumns,
+      groupBy,
+      filters,
+      sortBy: record.sortBy || undefined,
+      sortOrder: record.sortOrder === 'desc' ? 'desc' : 'asc',
+      createdAt: record.createdAt.toISOString(),
+    };
+    res.status(201).json({ success: true, message: 'پیکربندی گزارش در PostgreSQL ذخیره شد.', data });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err instanceof Error ? err.message : 'خطا در ذخیره پیکربندی گزارش در PostgreSQL',
     });
   }
 });
