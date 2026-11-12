@@ -111,6 +111,19 @@ async function main() {
     }
   }
 
+  await prisma.savedReportConfig.upsert({
+    where: { id: 'REP-CFG-01' },
+    update: {},
+    create: {
+      id: 'REP-CFG-01',
+      name: 'موجودی کل کلاف‌ها بر اساس پکینگ و گرید',
+      reportType: 'COILS_SUMMARY',
+      selectedColumns: ['materialGrade', 'thicknessMm', 'widthMm', 'coilPackNumber', 'totalCoilsCount', 'totalRemainingWeightKg'],
+      groupBy: ['materialGrade', 'coilPackNumber'],
+      filters: {},
+    },
+  });
+
   console.log(`Canonical master data ready: ${INITIAL_PARTS.length} parts, ${grades.length} material grades, ${WAREHOUSES_LIST.length} warehouses.`);
 }
 
