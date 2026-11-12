@@ -19,7 +19,10 @@ export const isDatabaseUrlConfigured = (): boolean => {
     return (
       (parsed.protocol === 'postgresql:' || parsed.protocol === 'postgres:') &&
       Boolean(parsed.hostname) &&
-      parsed.pathname.length > 1
+      parsed.pathname.length > 1 &&
+      parsed.hostname.toLowerCase() !== 'your_host' &&
+      parsed.username.toLowerCase() !== 'your_user' &&
+      parsed.pathname.slice(1).toLowerCase() !== 'your_database'
     );
   } catch {
     return false;
@@ -50,7 +53,10 @@ export const resolveDatabaseUrl = (): string => {
   if (
     (parsed.protocol !== 'postgresql:' && parsed.protocol !== 'postgres:') ||
     !parsed.hostname ||
-    parsed.pathname.length <= 1
+    parsed.pathname.length <= 1 ||
+    parsed.hostname.toLowerCase() === 'your_host' ||
+    parsed.username.toLowerCase() === 'your_user' ||
+    parsed.pathname.slice(1).toLowerCase() === 'your_database'
   ) {
     throw new Error('DATABASE_URL must be a valid PostgreSQL URL with a host and database name.');
   }
