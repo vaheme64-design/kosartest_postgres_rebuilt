@@ -30,7 +30,8 @@ async function runProductionPlanningTests() {
   // TEST GROUP 1: Demand & Netting Logic (FG, Blocked Stock, Reservations)
   // =========================================================================
   console.log('📋 Test Group 1: Demand & Netting Logic (FG, Blocked Stock, Reservations)');
-  const testPart = INITIAL_PARTS.find(p => p.code === 'SAPCO-ASSY-206-001') || INITIAL_PARTS[33];
+  const testPart = INITIAL_PARTS.find(p => p.category === 'FINISHED_GOOD');
+  if (!testPart) throw new Error('Canonical finished-good test part is missing from INITIAL_PARTS.');
 
   const testOrders: CustomerOrder[] = [
     {
