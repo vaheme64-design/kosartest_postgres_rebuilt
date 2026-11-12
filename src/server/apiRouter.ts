@@ -2189,7 +2189,7 @@ apiRouter.post('/inventory/documents', async (req: Request, res: Response) => {
         ownership: l.ownership || payload.ownership || 'COMPANY_OWNED',
         contractId: l.contractId || payload.contractId,
         contractNumber: l.contractNumber || payload.contractNumber,
-        locationCode: l.locationCode || 'LOC-01',
+        locationCode: l.locationCode || undefined,
         targetLocationCode: l.targetLocationCode,
         quantity: qty,
         unit: part ? part.unit : l.unit || 'PCS',
