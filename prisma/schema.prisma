@@ -1668,3 +1668,14 @@ model WipStateSnapshot {
 
   @@map("wip_state_snapshots")
 }
+
+
+// Transitional durable store for contract/physical-coil allocations and issue-return state.
+// The transactional inventory ledger remains normalized in InventoryDocument/InventoryTransaction.
+model InventoryAppStateSnapshot {
+  id        String   @id
+  payload   Json
+  updatedAt DateTime @updatedAt
+
+  @@map("inventory_app_state_snapshots")
+}
