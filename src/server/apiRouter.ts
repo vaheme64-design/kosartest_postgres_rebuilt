@@ -336,23 +336,30 @@ let savedReportsStore: SavedReportConfig[] = [
 let importBatchesStore: ImportBatchSummary[] = [];
 
 
-async function executePersistentWipMutation<T extends { success: boolean }>(mutation: () => T): Promise<T> {
-  const clone = <V>(value: V): V => JSON.parse(JSON.stringify(value)) as V;
-  const previousOrders = clone(manufacturingOrdersStore);
-  const previousTransfers = clone(wipTransfersStore);
-  const previousLogs = clone(productionLogsStore);
-  const result = mutation();
-  if (!result.success) return result;
+let wipMutationQueue: Promise<unknown> = Promise.resolve();
 
-  try {
-    await persistProductionWipState();
-    return result;
-  } catch (error) {
-    manufacturingOrdersStore.splice(0, manufacturingOrdersStore.length, ...previousOrders);
-    wipTransfersStore.splice(0, wipTransfersStore.length, ...previousTransfers);
-    productionLogsStore.splice(0, productionLogsStore.length, ...previousLogs);
-    throw error;
-  }
+async function executePersistentWipMutation<T extends { success: boolean }>(mutation: () => T): Promise<T> {
+  const task = wipMutationQueue.catch(() => undefined).then(async () => {
+    const clone = <V>(value: V): V => JSON.parse(JSON.stringify(value)) as V;
+    const previousOrders = clone(manufacturingOrdersStore);
+    const previousTransfers = clone(wipTransfersStore);
+    const previousLogs = clone(productionLogsStore);
+    const result = mutation();
+    if (!result.success) return result;
+
+    try {
+      await persistProductionWipState();
+      return result;
+    } catch (error) {
+      manufacturingOrdersStore.splice(0, manufacturingOrdersStore.length, ...previousOrders);
+      wipTransfersStore.splice(0, wipTransfersStore.length, ...previousTransfers);
+      productionLogsStore.splice(0, productionLogsStore.length, ...previousLogs);
+      throw error;
+    }
+  });
+
+  wipMutationQueue = task.then(() => undefined, () => undefined);
+  return task;
 }
 
 export const apiRouter = Router();
