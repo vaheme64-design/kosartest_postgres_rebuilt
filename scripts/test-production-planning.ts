@@ -60,6 +60,9 @@ async function runProductionPlanningTests() {
     },
   ];
 
+  // Use the same canonical order fixture for the dashboard and suggestion engine.
+  customerOrdersStore.splice(0, customerOrdersStore.length, ...testOrders);
+
   // Stock scenario: 300 Physical in WH-FINISHED, 50 Blocked (quarantine), 50 Reserved
   // Available FG must be exactly 300 - 50 - 50 = 200 PCS
   const mockBalances: DetailedStockBalance[] = [
