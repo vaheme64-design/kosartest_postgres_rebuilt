@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { apiRouter } from './src/server/apiRouter';
 import { resolveDatabaseUrl } from './src/server/db/prisma';
+import { loadProductionWipState } from './src/server/productionWipEngine';
 
 resolveDatabaseUrl();
 
@@ -24,6 +25,9 @@ const PORT = Number(process.env.PORT) || portFromArgs || 3000;
 const HOST = process.env.HOST || hostFromArgs || '0.0.0.0';
 
 async function startServer() {
+  // Load durable WIP state before exposing API routes.
+  await loadProductionWipState();
+
   const app = express();
 
   // Support large Excel/CSV file imports (up to 50MB payloads)
