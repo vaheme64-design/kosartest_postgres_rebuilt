@@ -1,10 +1,5 @@
 import 'dotenv/config';
 
-// Force validate/sanitize DATABASE_URL immediately so PostgreSQL provider in Prisma is always valid
-if (!process.env.DATABASE_URL || (!process.env.DATABASE_URL.startsWith('postgresql://') && !process.env.DATABASE_URL.startsWith('postgres://'))) {
-  process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/kpims_db?schema=public';
-}
-
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
