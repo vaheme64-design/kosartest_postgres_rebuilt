@@ -247,7 +247,8 @@ export function evaluateMachineEligibility(params: {
   const estimatedRunHours = Math.round(((setupMin / 60) + ((plannedQty * cycleSec) / 3600)) * 10) / 10;
   const dailyShiftHours = 15; // 2 shifts of 7.5 hours
 
-  // Find assigned die/mold if specified
+  // A selected die must exist in master data; unknown tooling must never be treated as compatible.
+  const dieWasRequested = Boolean(params.assignedDieCode || params.assignedDieId);
   const assignedDie = params.assignedDieCode
     ? dies.find(d => d.code === params.assignedDieCode)
     : params.assignedDieId
@@ -276,11 +277,22 @@ export function evaluateMachineEligibility(params: {
 
     // 3. Die / Mold Compatibility Check
     let dieCompatible = true;
-    if (assignedDie) {
+    if (dieWasRequested && !assignedDie) {
+      dieCompatible = false;
+      ineligibilityReasons.push(`قالب انتخاب‌شده (${params.assignedDieCode || params.assignedDieId}) در اطلاعات پایه تعریف نشده است.`);
+    } else if (assignedDie) {
       const compatibleCodes = assignedDie.compatibleMachineCodes || [];
-      if (compatibleCodes.length > 0 && !compatibleCodes.includes(machine.code)) {
-        dieCompatible = false;
-        ineligibilityReasons.push(`قالب ${assignedDie.code} (${assignedDie.name}) با ابعاد میز و فک این دستگاه ناسازگار است.`);
+      const compatibleIds = assignedDie.compatibleMachineIds || [];
+      const hasCompatibilityData = compatibleCodes.length > 0 || compatibleIds.length > 0;
+      const matchesCode = compatibleCodes.length === 0 || compatibleCodes.includes(machine.code);
+      const matchesId = compatibleIds.length === 0 || compatibleIds.includes(machine.id);
+      dieCompatible = hasCompatibilityData && matchesCode && matchesId;
+
+      if (!dieCompatible) {
+        const reason = hasCompatibilityData
+          ? `قالب ${assignedDie.code} (${assignedDie.name}) با ابعاد میز و فک این دستگاه ناسازگار است.`
+          : `سازگاری قالب ${assignedDie.code} با ماشین‌ها در اطلاعات پایه تعریف نشده است.`;
+        ineligibilityReasons.push(reason);
       }
     }
 

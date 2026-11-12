@@ -18,6 +18,20 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kpims_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kpims_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/kpims_ci?schema=public
     steps:
@@ -41,7 +55,14 @@ jobs:
       - name: Production build
         run: bun run build
 
+      - name: Prepare disposable test database
+        run: bunx prisma db push
+
+      - name: Seed canonical master data
+        run: bun run seed
+
+      - name: Verify production-safe master seed
+        run: bun run seed:master
+
       - name: Automated tests
-        env:
-          DATABASE_URL: ""
         run: bun run test
