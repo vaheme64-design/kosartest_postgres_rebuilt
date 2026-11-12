@@ -961,7 +961,7 @@ async function runAllTests() {
         totalWeightKg: 10,
       };
       const blockedIssueResult = await postDocumentInDbTransaction(blockedIssueDoc, testUser);
-      assert(blockedIssueResult.success === false && blockedIssueResult.error?.includes('کیفی'), 'Quarantined stock issue is rejected by PostgreSQL posting');
+      assert(blockedIssueResult.success === false && blockedIssueResult.error?.includes('کیفی') === true, 'Quarantined stock issue is rejected by PostgreSQL posting');
       
     } catch (err: any) {
       console.warn('   Note: Prisma test completed with message:', err.message);
