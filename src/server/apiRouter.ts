@@ -89,6 +89,7 @@ import {
   productionLogsStore,
   clearProductionWipData,
   reseedProductionWipData,
+  persistProductionWipState,
 } from './productionWipEngine';
 import {
   calculateNetRequirements,
@@ -333,6 +334,26 @@ let savedReportsStore: SavedReportConfig[] = [
   },
 ];
 let importBatchesStore: ImportBatchSummary[] = [];
+
+
+async function executePersistentWipMutation<T extends { success: boolean }>(mutation: () => T): Promise<T> {
+  const clone = <V>(value: V): V => JSON.parse(JSON.stringify(value)) as V;
+  const previousOrders = clone(manufacturingOrdersStore);
+  const previousTransfers = clone(wipTransfersStore);
+  const previousLogs = clone(productionLogsStore);
+  const result = mutation();
+  if (!result.success) return result;
+
+  try {
+    await persistProductionWipState();
+    return result;
+  } catch (error) {
+    manufacturingOrdersStore.splice(0, manufacturingOrdersStore.length, ...previousOrders);
+    wipTransfersStore.splice(0, wipTransfersStore.length, ...previousTransfers);
+    productionLogsStore.splice(0, productionLogsStore.length, ...previousLogs);
+    throw error;
+  }
+}
 
 export const apiRouter = Router();
 
@@ -4909,9 +4930,9 @@ apiRouter.get('/wip/manufacturing-orders/:id', (req: Request, res: Response) => 
 /**
  * 17.4. Create New Manufacturing Order from Approved Part Routing
  */
-apiRouter.post('/wip/manufacturing-orders', (req: Request, res: Response) => {
+apiRouter.post('/wip/manufacturing-orders', async (req: Request, res: Response) => {
   try {
-    const result = createManufacturingOrder(req.body);
+    const result = await executePersistentWipMutation(() => createManufacturingOrder(req.body));
     if (!result.success) {
       return res.status(400).json(result);
     }
@@ -4927,9 +4948,9 @@ apiRouter.post('/wip/manufacturing-orders', (req: Request, res: Response) => {
 /**
  * 17.5. Register Operation Input (Loading into machine from waiting queue)
  */
-apiRouter.post('/wip/operations/input', (req: Request, res: Response) => {
+apiRouter.post('/wip/operations/input', async (req: Request, res: Response) => {
   try {
-    const result = registerOperationInput(req.body);
+    const result = await executePersistentWipMutation(() => registerOperationInput(req.body));
     if (!result.success) {
       return res.status(400).json(result);
     }
@@ -4945,9 +4966,9 @@ apiRouter.post('/wip/operations/input', (req: Request, res: Response) => {
 /**
  * 17.6. Register Good Production, Scrap, Rework, Rejected Quantities
  */
-apiRouter.post('/wip/operations/production', (req: Request, res: Response) => {
+apiRouter.post('/wip/operations/production', async (req: Request, res: Response) => {
   try {
-    const result = registerOperationProduction(req.body);
+    const result = await executePersistentWipMutation(() => registerOperationProduction(req.body));
     if (!result.success) {
       return res.status(400).json(result);
     }
@@ -4977,9 +4998,9 @@ apiRouter.get('/wip/transfers', (_req: Request, res: Response) => {
 /**
  * 17.8. Create Inter-Operation Transfer
  */
-apiRouter.post('/wip/transfers', (req: Request, res: Response) => {
+apiRouter.post('/wip/transfers', async (req: Request, res: Response) => {
   try {
-    const result = createOperationTransfer(req.body);
+    const result = await executePersistentWipMutation(() => createOperationTransfer(req.body));
     if (!result.success) {
       return res.status(400).json(result);
     }
@@ -4995,14 +5016,14 @@ apiRouter.post('/wip/transfers', (req: Request, res: Response) => {
 /**
  * 17.9. Approve & Receive Inter-Operation Transfer
  */
-apiRouter.post('/wip/transfers/:id/approve', (req: Request, res: Response) => {
+apiRouter.post('/wip/transfers/:id/approve', async (req: Request, res: Response) => {
   try {
     const { receivedBy, notes } = req.body;
-    const result = approveOperationTransfer({
+    const result = await executePersistentWipMutation(() => approveOperationTransfer({
       transferId: req.params.id,
       receivedBy: receivedBy || 'سرپرست ایستگاه مقصد',
       notes,
-    });
+    }));
     if (!result.success) {
       return res.status(400).json(result);
     }
@@ -5018,14 +5039,14 @@ apiRouter.post('/wip/transfers/:id/approve', (req: Request, res: Response) => {
 /**
  * 17.10. Reject Inter-Operation Transfer
  */
-apiRouter.post('/wip/transfers/:id/reject', (req: Request, res: Response) => {
+apiRouter.post('/wip/transfers/:id/reject', async (req: Request, res: Response) => {
   try {
     const { rejectedBy, rejectionReason } = req.body;
-    const result = rejectOperationTransfer({
+    const result = await executePersistentWipMutation(() => rejectOperationTransfer({
       transferId: req.params.id,
       rejectedBy: rejectedBy || 'بازرس کنترل کیفیت',
       rejectionReason: rejectionReason || 'مغایرت تعداد یا عدم انطباق کیفی در ورودی',
-    });
+    }));
     if (!result.success) {
       return res.status(400).json(result);
     }
