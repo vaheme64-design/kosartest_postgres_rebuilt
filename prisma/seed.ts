@@ -184,6 +184,7 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('  -> Seeding Materials (Steel Grades)...');
   const materials = [
+    { code: 'MAT-DC01A', name: 'ورق روغنی DC01A مطابق EN 10130', grade: 'DC01A', standard: 'EN 10130', densityKgM3: 7850 },
     { code: 'MAT-DC04', name: 'ورق فولادی روغنی DC04 کشش عمیق فوق ویژه', grade: 'DC04', standard: 'EN 10130', densityKgM3: 7850, yieldStrengthMpa: 210, tensileStrengthMpa: 350, elongationPercent: 38 },
     { code: 'MAT-ST14', name: 'ورق روغنی نورد سرد ST14 کشش عمیق', grade: 'ST14', standard: 'DIN 1623', densityKgM3: 7850, yieldStrengthMpa: 220, tensileStrengthMpa: 360, elongationPercent: 36 },
     { code: 'MAT-ST12', name: 'ورق روغنی معمولی ST12 فرم‌دهی و خمش', grade: 'ST12', standard: 'DIN 1623', densityKgM3: 7850, yieldStrengthMpa: 280, tensileStrengthMpa: 420, elongationPercent: 28 },
@@ -361,7 +362,15 @@ async function main() {
 
   // Representative subset of key automotive stamped parts
   const partsData = [
-    // Raw Materials (Coils & Sheets)
+    // Application canonical master data: codes must match src/server/sampleData.ts
+    { partNumber: 'RM-COIL-DC01A-2.0-1140', name: 'رول ورق روغنی DC01A ضخامت 2mm با عرض 1140mm (ابعاد ۲×۱۱۴۰)', category: PartCategory.RAW_MATERIAL, unitCode: 'KG', materialCode: 'MAT-DC01A', thicknessMm: 2.0, weightNetKg: 1.0, weightGrossKg: 1.0, supplierPartNumber: 'SAP-RAW-DC01-1140', carModel: 'پژو ۲۰۶ و ۲۰۷', minSafetyStock: 4000, maxStock: 25000 },
+    { partNumber: 'RM-SHT-DC01A-2.0-1000', name: 'ورق شیت روغنی DC01A ضخامت 2mm ابعاد ۲×۱۰۰۰ (ورق آلترناتیو)', category: PartCategory.RAW_MATERIAL, unitCode: 'KG', materialCode: 'MAT-DC01A', thicknessMm: 2.0, weightNetKg: 1.0, weightGrossKg: 1.0, supplierPartNumber: 'SAP-RAW-DC01-ALT', carModel: 'پژو ۲۰۶ و ۲۰۷', minSafetyStock: 2000, maxStock: 15000 },
+    { partNumber: 'FST-NUT-WELD-M6', name: 'مهره جوشی چهارگوش پایه‌دار M6 استاندارد DIN 928', category: PartCategory.RAW_MATERIAL, unitCode: 'PCS', weightNetKg: 0.006, weightGrossKg: 0.006, supplierPartNumber: 'FST-DIN928-M6', carModel: 'پژو ۲۰۶ و ۲۰۷', minSafetyStock: 5000, maxStock: 50000 },
+    { partNumber: 'FST-BOLT-WELD-M6-20', name: 'پیچ پایه جوشی مقاومتی M6x20 استاندارد خودرویی', category: PartCategory.RAW_MATERIAL, unitCode: 'PCS', weightNetKg: 0.008, weightGrossKg: 0.008, supplierPartNumber: 'FST-STUD-M6X20', carModel: 'پژو ۲۰۶ و ۲۰۷', minSafetyStock: 3000, maxStock: 30000 },
+    { partNumber: 'WIP-ECU-MAIN-BRK', name: 'صفحه براکت اصلی ضدسرقت رایانه موتور', category: PartCategory.WIP_PART, unitCode: 'PCS', materialCode: 'MAT-DC01A', thicknessMm: 2.0, weightNetKg: 0.75, weightGrossKg: 0.75, supplierPartNumber: 'WIP-SAP-ECU01', carModel: 'پژو ۲۰۶', minSafetyStock: 300, maxStock: 2000 },
+    { partNumber: 'WIP-ECU-COMP-BRK', name: 'مکمل براکت ضدسرقت رایانه موتور', category: PartCategory.WIP_PART, unitCode: 'PCS', materialCode: 'MAT-DC01A', thicknessMm: 2.0, weightNetKg: 0.35, weightGrossKg: 0.35, supplierPartNumber: 'WIP-SAP-ECU02', carModel: 'پژو ۲۰۶', minSafetyStock: 300, maxStock: 2000 },
+    { partNumber: 'SAPCO-ASY-ECU-BRK-01', name: 'مجموعه براکت ضدسرقت رایانه موتور با پوشش رنگ کاتافورز ED', category: PartCategory.FINISHED_GOOD, unitCode: 'PCS', materialCode: 'MAT-DC01A', thicknessMm: 2.0, weightNetKg: 1.25, weightGrossKg: 1.25, supplierPartNumber: 'IK-501-ECU99', carModel: 'پژو ۲۰۶', minSafetyStock: 200, maxStock: 1800 },
+    // Seed demonstration catalog
     { partNumber: 'SAP-COIL-DC04-08', name: 'کویل ورق روغنی DC04 ضخامت ۰.۸ عرض ۱۲۵۰', category: PartCategory.RAW_MATERIAL, unitCode: 'KG', materialCode: 'MAT-DC04', thicknessMm: 0.8, weightNetKg: 1.0, weightGrossKg: 1.0, customerPartNumber: 'SAP-MAT-0498', carModel: 'عمومی بدنه', minSafetyStock: 5000 },
     { partNumber: 'SAP-COIL-ST14-12', name: 'کویل ورق روغنی ST14 ضخامت ۱.۲ عرض ۱۱۰۰', category: PartCategory.RAW_MATERIAL, unitCode: 'KG', materialCode: 'MAT-ST14', thicknessMm: 1.2, weightNetKg: 1.0, weightGrossKg: 1.0, customerPartNumber: 'SAP-MAT-0520', carModel: 'عمومی شاسی', minSafetyStock: 4000 },
     { partNumber: 'SAP-COIL-DX51-10', name: 'کویل ورق گالوانیزه DX51D ضخامت ۱.۰ عرض ۱۰۰۰', category: PartCategory.RAW_MATERIAL, unitCode: 'KG', materialCode: 'MAT-DX51D', thicknessMm: 1.0, weightNetKg: 1.0, weightGrossKg: 1.0, customerPartNumber: 'SAP-MAT-0610', carModel: 'عمومی کف', minSafetyStock: 3500 },
@@ -390,8 +399,10 @@ async function main() {
         weightNetKg: p.weightNetKg,
         weightGrossKg: p.weightGrossKg,
         customerPartNumber: p.customerPartNumber,
+        supplierPartNumber: p.supplierPartNumber,
         carModel: p.carModel,
         minSafetyStock: p.minSafetyStock,
+        maxStock: p.maxStock,
       },
       create: {
         partNumber: p.partNumber,
@@ -403,8 +414,10 @@ async function main() {
         weightNetKg: p.weightNetKg,
         weightGrossKg: p.weightGrossKg,
         customerPartNumber: p.customerPartNumber,
+        supplierPartNumber: p.supplierPartNumber,
         carModel: p.carModel,
         minSafetyStock: p.minSafetyStock,
+        maxStock: p.maxStock,
       },
     });
     partMap[p.partNumber] = created.id;
