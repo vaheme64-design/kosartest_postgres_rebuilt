@@ -1530,6 +1530,10 @@ export async function postDocumentInDbTransaction(
         const contractNumber = line.contractNumber || document.contractNumber || null;
         const qualityStatus = line.qualityStatus || 'AVAILABLE';
 
+        if (signedQuantity < 0 && qualityStatus !== 'AVAILABLE') {
+          throw new Error(`خروج کالای دارای وضعیت کیفی «${qualityStatus}» مجاز نیست؛ ابتدا وضعیت کنترل کیفیت را تعیین تکلیف کنید.`);
+        }
+
         const existingBalance = await tx.stockBalance.findFirst({
           where: {
             partId,
