@@ -63,6 +63,12 @@ async function runProductionPlanningTests() {
   // Use the same canonical order fixture for the dashboard and suggestion engine.
   customerOrdersStore.splice(0, customerOrdersStore.length, ...testOrders);
 
+  const preReleaseDashboard = getPlanningDashboardMetrics();
+  runAssertion(
+    'Dashboard flags uncovered finished-good demand before MO release',
+    preReleaseDashboard.criticalPartsRequiringImmediateAction.some(item => item.partCode === testPart.code && item.netShortage > 0)
+  );
+
   // Stock scenario: 300 Physical in WH-FINISHED, 50 Blocked (quarantine), 50 Reserved
   // Available FG must be exactly 300 - 50 - 50 = 200 PCS
   const mockBalances: DetailedStockBalance[] = [
@@ -406,26 +412,15 @@ async function runProductionPlanningTests() {
   // TEST GROUP 7: Planning Dashboard Metrics
   // =========================================================================
   console.log('\n📋 Test Group 7: Planning Dashboard Metrics');
-  // Use an intentionally high dashboard demand so the critical-parts panel must contain this part
-  // even after the seeded finished-goods balance is netted.
-  customerOrdersStore.splice(0, customerOrdersStore.length, {
-    ...testOrders[0],
-    id: 'TEST-DASHBOARD-ORDER',
-    orderNumber: 'SO-TEST-DASHBOARD',
-    lines: testOrders[0].lines.map(line => ({
-      ...line,
-      id: 'LN-DASHBOARD-01',
-      orderId: 'TEST-DASHBOARD-ORDER',
-      orderedQuantity: 10000,
-      remainingQuantity: 10000,
-    })),
-  });
-
+  // The released MO should cover the net production requirement calculated before release.
   const metrics = getPlanningDashboardMetrics();
   runAssertion('Total open orders counted', metrics.totalOpenOrdersCount >= 1);
   runAssertion('Gross demand pieces aggregated', metrics.totalGrossDemandPieces > 0);
   runAssertion('Average machine capacity utilization calculated (%)', metrics.averageMachineCapacityUtilizationPercent > 0 && metrics.averageMachineCapacityUtilizationPercent <= 100);
-  runAssertion('Critical parts list populated', metrics.criticalPartsRequiringImmediateAction.length >= 1);
+  runAssertion(
+    'Critical-parts panel no longer flags the order after its net requirement is covered by a released MO',
+    !metrics.criticalPartsRequiringImmediateAction.some(item => item.partCode === testPart.code)
+  );
 
   console.log('\n=============================================================');
   console.log('📊 ALL PRODUCTION PLANNING TESTS PASSED: 30/30 ASSERTS OK');
