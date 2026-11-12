@@ -363,7 +363,7 @@ async function runProductionPlanningTests() {
     plannedQuantity: 1800,
     standardCycleTimeSec: 8, // 1800 * 8 = 14400 sec = 4.0 hours + 0.5h setup = 4.5h
     setupTimeMin: 30,
-    assignedDieCode: 'DIE-206-BRK-BLNK',
+    assignedDieCode: 'DIE-ECU-BLK-01' // canonical blanking die in INITIAL_DIES_MOLDS,
   });
   const topBlankingMachine = blankingCandidates.find(m => m.isEligible)!;
   runAssertion('Estimated run time calculated accurately (~4.5 hours)', topBlankingMachine.estimatedRunTimeHours >= 4.4 && topBlankingMachine.estimatedRunTimeHours <= 4.6);
