@@ -339,6 +339,9 @@ export async function persistInventoryAppState(): Promise<void> {
     physicalCoils: physicalCoilsStore,
     coilIssueRecords: coilIssueRecordsStore,
     reservations: reservationsStore,
+    inventoryDocuments: inventoryDocsStore,
+    auditLogs: auditLogsStore,
+    qcHolds: serverQcHoldStore,
   }));
 
   const task = inventoryStateQueue.catch(() => undefined).then(async () => {
@@ -368,13 +371,19 @@ export async function loadInventoryAppState(): Promise<void> {
       physicalCoils?: PhysicalCoil[];
       coilIssueRecords?: CoilIssueReturnRecord[];
       reservations?: InventoryReservation[];
+      inventoryDocuments?: InventoryDocument[];
+      auditLogs?: AuditRecord[];
+      qcHolds?: Record<string, any>;
     };
     if (
       !payload ||
       !Array.isArray(payload.contracts) ||
       !Array.isArray(payload.physicalCoils) ||
       !Array.isArray(payload.coilIssueRecords) ||
-      !Array.isArray(payload.reservations)
+      !Array.isArray(payload.reservations) ||
+      !Array.isArray(payload.inventoryDocuments) ||
+      !Array.isArray(payload.auditLogs) ||
+      !payload.qcHolds || typeof payload.qcHolds !== 'object'
     ) {
       throw new Error('Persistent inventory application snapshot is malformed; refusing to overwrite it.');
     }
@@ -383,12 +392,19 @@ export async function loadInventoryAppState(): Promise<void> {
     physicalCoilsStore.splice(0, physicalCoilsStore.length, ...payload.physicalCoils);
     coilIssueRecordsStore.splice(0, coilIssueRecordsStore.length, ...payload.coilIssueRecords);
     reservationsStore.splice(0, reservationsStore.length, ...payload.reservations);
+    inventoryDocsStore.splice(0, inventoryDocsStore.length, ...payload.inventoryDocuments);
+    auditLogsStore.splice(0, auditLogsStore.length, ...payload.auditLogs);
+    for (const key of Object.keys(serverQcHoldStore)) delete serverQcHoldStore[key];
+    Object.assign(serverQcHoldStore, payload.qcHolds);
   } else if (process.env.NODE_ENV === 'production') {
     // Do not expose hard-coded sample contracts/coils as live production inventory.
     contractsStore.splice(0);
     physicalCoilsStore.splice(0);
     coilIssueRecordsStore.splice(0);
     reservationsStore.splice(0);
+    inventoryDocsStore.splice(0);
+    auditLogsStore.splice(0);
+    for (const key of Object.keys(serverQcHoldStore)) delete serverQcHoldStore[key];
     await persistInventoryAppState();
   }
 
@@ -441,7 +457,7 @@ export async function loadInventoryAppState(): Promise<void> {
   });
 
   if (dbDocuments.length || process.env.NODE_ENV === 'production') {
-    inventoryDocsStore = dbDocuments.map(dbDoc => {
+    const mappedDatabaseDocuments = dbDocuments.map(dbDoc => {
       const lines: InventoryDocumentLine[] = dbDoc.lines.map(line => {
         const appPart = partsStore.find(part => part.code === line.part.partNumber);
         return {
@@ -515,6 +531,9 @@ export async function loadInventoryAppState(): Promise<void> {
         updatedAt: dbDoc.updatedAt.toISOString(),
       };
     });
+    const documentsByNumber = new Map(inventoryDocsStore.map(doc => [doc.documentNumber, doc]));
+    for (const doc of mappedDatabaseDocuments) documentsByNumber.set(doc.documentNumber, doc);
+    inventoryDocsStore.splice(0, inventoryDocsStore.length, ...documentsByNumber.values());
   }
 
   const dbReservations = await prisma.inventoryReservation.findMany({
@@ -554,7 +573,7 @@ export async function loadInventoryAppState(): Promise<void> {
     take: 1000,
   });
   if (dbAudit.length || process.env.NODE_ENV === 'production') {
-    auditLogsStore = dbAudit.map(row => ({
+    const databaseAudit = dbAudit.map(row => ({
       id: row.id,
       action: row.action,
       entityName: row.entityName,
@@ -563,6 +582,9 @@ export async function loadInventoryAppState(): Promise<void> {
       details: JSON.stringify(row.newValues || row.oldValues || {}),
       timestamp: row.timestamp.toISOString(),
     }));
+    const auditById = new Map(auditLogsStore.map(row => [row.id, row]));
+    for (const row of databaseAudit) auditById.set(row.id, row);
+    auditLogsStore.splice(0, auditLogsStore.length, ...auditById.values());
   }
 }
 
