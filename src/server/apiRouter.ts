@@ -9600,12 +9600,12 @@ apiRouter.get('/reports/supplier-matrix', async (req: Request, res: Response) =>
 
         if (tx.transactionType === 'INBOUND' && signedKg > 0) {
           if (tx.ownership === 'SAPCO_SUPPLIER_OWNED') row.consignmentReceivedKg += signedKg;
-          else row.financialReceivedKg += signedKg;
-        }
-        if (signedKg < 0 && tx.transactionType === 'OUTBOUND') {
+          else if (tx.ownership === 'COMPANY_OWNED') row.financialReceivedKg += signedKg;
+          else row.otherMovementKg += signedKg;
+        } else if (signedKg < 0 && tx.transactionType === 'OUTBOUND') {
           row.totalConsumptionKg += Math.abs(signedKg);
-        } else if (!(tx.transactionType === 'INBOUND' && signedKg > 0)) {
-          // Transfers and inventory adjustments change book balance but are not material consumption.
+        } else {
+          // Transfers, adjustments, and non-company/non-SAPCO receipts are not financial receipts or consumption.
           row.otherMovementKg += signedKg;
         }
         row.closingBalanceKg += signedKg;
