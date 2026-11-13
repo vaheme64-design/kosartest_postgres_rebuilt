@@ -9203,7 +9203,7 @@ apiRouter.get('/reports/production-delays/analytics', async (req: Request, res: 
       : {};
     const prisma = getPrismaClient();
 
-    const [orderLines, openMos, completedLateMos] = await Promise.all([
+    const [orderLines, openMos, completedLateMoRows] = await Promise.all([
       prisma.customerOrderLine.findMany({
         where: {
           requestedDate: dueDateFilter,
@@ -9223,24 +9223,14 @@ apiRouter.get('/reports/production-delays/analytics', async (req: Request, res: 
         include: { part: { select: { partNumber: true, name: true } } },
         take: 5000,
       }),
-      prisma.manufacturingOrder.count({
-        where: {
-          status: 'COMPLETED',
-          actualEndDate: { not: null },
-          scheduledEndDate: { lt: now },
-          actualEndDate: { gt: prisma.manufacturingOrder.fields.scheduledEndDate },
-          ...partFilter,
-        },
-      }).catch(async () => {
-        // Prisma cannot compare two columns in all generated-client versions; compute from a bounded read instead.
-        const late = await prisma.manufacturingOrder.findMany({
-          where: { status: 'COMPLETED', actualEndDate: { not: null }, scheduledEndDate: { lt: now }, ...partFilter },
-          select: { scheduledEndDate: true, actualEndDate: true },
-          take: 5000,
-        });
-        return late.filter((mo: any) => mo.actualEndDate && mo.actualEndDate > mo.scheduledEndDate).length;
+      prisma.manufacturingOrder.findMany({
+        where: { status: 'COMPLETED', actualEndDate: { not: null }, scheduledEndDate: { lt: now }, ...partFilter },
+        select: { scheduledEndDate: true, actualEndDate: true },
+        take: 5000,
       }),
     ]);
+
+    const completedLateMosCount = completedLateMoRows.filter((mo: any) => mo.actualEndDate && mo.actualEndDate > mo.scheduledEndDate).length;
 
     const delayed = [
       ...orderLines.flatMap((line: any) => {
