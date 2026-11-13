@@ -9224,7 +9224,7 @@ apiRouter.get('/reports/production-delays/analytics', async (req: Request, res: 
         take: 5000,
       }),
       prisma.manufacturingOrder.findMany({
-        where: { status: 'COMPLETED', actualEndDate: { not: null }, scheduledEndDate: { lt: now }, ...partFilter },
+        where: { status: 'COMPLETED', actualEndDate: { not: null }, scheduledEndDate: dueDateFilter, ...partFilter },
         select: { scheduledEndDate: true, actualEndDate: true },
         take: 5000,
       }),
@@ -9593,6 +9593,7 @@ apiRouter.get('/reports/supplier-matrix', async (req: Request, res: Response) =>
 
         if (beforePeriod) {
           row.openingBalanceKg += signedKg;
+          row.closingBalanceKg += signedKg;
           continue;
         }
         if (!inPeriod) continue;
