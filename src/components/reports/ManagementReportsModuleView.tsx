@@ -1366,7 +1366,7 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-right">
                     <span className="text-[11px] text-emerald-700 block font-sans">نرخ تحویل به‌موقع (OTIF)</span>
                     <div className="text-xl font-black text-emerald-700 font-mono mt-1">
-                      {toPersianDigits(delayAnalytics.onTimeDeliveryRatePercent)}٪
+                      {delayAnalytics.onTimeDeliveryRatePercent === null ? 'ثبت نشده' : `${toPersianDigits(delayAnalytics.onTimeDeliveryRatePercent)}٪`}
                     </div>
                     <span className="text-[10px] text-slate-500 mt-1 block">شاخص کیفی ساپکو</span>
                   </div>
@@ -1398,7 +1398,7 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-right">
                     <span className="text-[11px] text-slate-500 block font-sans">برآورد ریسک جریمه ساپکو</span>
                     <div className="text-lg font-black text-rose-600 font-mono mt-1">
-                      {formatNumber(Math.round(delayAnalytics.estimatedPenaltyRiskRials / 1000000))} <span className="text-[11px] font-sans font-normal text-slate-500">م.ریال</span>
+                      {delayAnalytics.estimatedPenaltyRiskRials === null ? 'ثبت نشده' : formatNumber(Math.round(delayAnalytics.estimatedPenaltyRiskRials / 1000000))} <span className="text-[11px] font-sans font-normal text-slate-500">م.ریال</span>
                     </div>
                     <span className="text-[10px] text-rose-600/70 mt-1 block">جریمه تأخیر قرارداد</span>
                   </div>
