@@ -464,7 +464,7 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
           r.delayDays,
           r.primaryDelayCause,
           r.urgencyLevel,
-          r.delayPenaltyRiskRials || 0,
+          r.delayPenaltyRiskRials ?? 'ثبت نشده',
           `"${(r.delayDescription || '').replace(/"/g, '""')}"`,
         ]);
         exportToCsv(filename, headers, rows);
@@ -1595,7 +1595,7 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
                                     { label: 'موعد مصوب', value: formatToJalali(r.plannedDueDate) },
                                     { label: 'روزهای تأخیر', value: `${toPersianDigits(r.delayDays)} روز`, isHighlight: true },
                                     { label: 'علت ریشه‌ای', value: r.delayDescription },
-                                    { label: 'ریسک تخمینی جریمه', value: r.delayPenaltyRiskRials ? `${formatNumber(r.delayPenaltyRiskRials)} ریال` : 'ندارد' },
+                                    { label: 'ریسک تخمینی جریمه', value: r.delayPenaltyRiskRials === undefined ? 'ثبت نشده' : `${formatNumber(r.delayPenaltyRiskRials)} ریال` },
                                     { label: 'سطح فوریت', value: r.urgencyLevel },
                                   ],
                                 });
