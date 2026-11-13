@@ -255,7 +255,7 @@ export interface ProductionDelaysItem {
 }
 
 export interface DelayCauseDistribution {
-  causeKey: 'RAW_MATERIAL_SHORTAGE' | 'MACHINE_BREAKDOWN' | 'WIP_BOTTLENECK' | 'CAPACITY_OVERLOAD' | 'QUALITY_HOLD';
+  causeKey: 'RAW_MATERIAL_SHORTAGE' | 'MACHINE_BREAKDOWN' | 'WIP_BOTTLENECK' | 'CAPACITY_OVERLOAD' | 'QUALITY_HOLD' | 'UNASSESSED';
   causeLabelFa: string;
   itemsCount: number;
   percentage: number;
@@ -268,13 +268,13 @@ export interface ProductionDelayAnalyticsSummary {
   totalDelayedItemsCount: number;
   averageDelayDays: number;
   maxDelayDays: number;
-  onTimeDeliveryRatePercent: number; // OTIF
+  onTimeDeliveryRatePercent: number | null; // null until actual delivery timestamps are recorded
   customerOrdersDelayedCount: number;
   openMosDelayedCount: number;
   completedLateMosCount: number;
-  lateOperationsCount: number;
+  lateOperationsCount: number | null;
   criticalUrgencyCount: number;
-  estimatedPenaltyRiskRials: number;
+  estimatedPenaltyRiskRials: number | null;
   causesBreakdown: DelayCauseDistribution[];
   topDelayedParts: {
     partCode: string;
