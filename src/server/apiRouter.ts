@@ -7868,6 +7868,7 @@ apiRouter.get('/reports/dashboard-summary', async (req: Request, res: Response) 
       customerOrders,
       planLines,
       activeManufacturingOrders,
+      finalOperationsByOrder,
       productionTotals,
       scrapWeight,
       finishedGoodsBalances,
@@ -7913,6 +7914,19 @@ apiRouter.get('/reports/dashboard-summary', async (req: Request, res: Response) 
           part: { select: { materialId: true, weightGrossKg: true } },
         },
       }),
+      prisma.manufacturingOrder.findMany({
+        where: {
+          status: { not: 'CANCELLED' },
+          ...(filters.partId ? { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } : {}),
+        },
+        select: {
+          operations: {
+            orderBy: { stepNumber: 'desc' },
+            take: 1,
+            select: { id: true },
+          },
+        },
+      }),
       prisma.productionReport.aggregate({
         where: {
           postingStatus: 'POSTED',
@@ -7920,7 +7934,7 @@ apiRouter.get('/reports/dashboard-summary', async (req: Request, res: Response) 
           ...(dateWhere ? { reportDate: dateWhere } : {}),
           ...(filters.partId ? { manufacturingOrder: { is: { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } } } : {}),
         },
-        _sum: { goodQuantity: true, scrapQuantity: true },
+        _sum: { scrapQuantity: true },
       }),
       prisma.productionScrap.aggregate({
         where: {
@@ -7960,8 +7974,23 @@ apiRouter.get('/reports/dashboard-summary', async (req: Request, res: Response) 
       sum + order.orderLines.reduce((lineSum: number, line: any) =>
         lineSum + Math.max(0, Number(line.orderedQty) - Number(line.deliveredQty)), 0), 0
     );
+    const finalOperationIds = finalOperationsByOrder
+      .map((order: any) => order.operations[0]?.id)
+      .filter((id: string | undefined): id is string => Boolean(id));
+    const finalOperationProduction = finalOperationIds.length
+      ? await prisma.productionReport.aggregate({
+          where: {
+            productionOperationId: { in: finalOperationIds },
+            postingStatus: 'POSTED',
+            documentStatus: 'CONFIRMED',
+            ...(dateWhere ? { reportDate: dateWhere } : {}),
+          },
+          _sum: { goodQuantity: true },
+        })
+      : { _sum: { goodQuantity: null } };
     const totalPlannedProductionPieces = planLines.reduce((sum: number, line: any) => sum + Number(line.plannedQty), 0);
-    const totalActualProducedPieces = Number(productionTotals._sum.goodQuantity || 0);
+    // Count only the last operation of each MO to avoid counting the same parts at every routing stage.
+    const totalActualProducedPieces = Number(finalOperationProduction._sum.goodQuantity || 0);
     const totalScrapPieces = Number(productionTotals._sum.scrapQuantity || 0);
     const totalScrapWeightKg = Number(scrapWeight._sum.weightKg || 0);
 
