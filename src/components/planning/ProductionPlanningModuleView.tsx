@@ -256,21 +256,30 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
     });
   };
 
-  const handleQuickUpdatePriority = (orderId: string, newPriority: 1 | 2 | 3) => {
-    const updated = customerOrders.map(o => (o.id === orderId ? { ...o, priority: newPriority } : o));
-    setCustomerOrders(updated);
+  const handleQuickUpdatePriority = async (orderId: string, newPriority: 1 | 2 | 3) => {
     try {
-      localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(updated));
-    } catch {
-      // ignore
+      const response = await fetch(`/api/planning/customer-orders/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: newPriority }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'تغییر اولویت سفارش ذخیره نشد.');
+      }
+
+      await loadPlanningData();
+      recordAudit({
+        moduleName: 'برنامه‌ریزی تولید',
+        actionType: 'UPDATE',
+        title: `تغییر اولویت سفارش ${orderId}`,
+        details: `اولویت به ${newPriority === 1 ? 'فوری' : newPriority === 2 ? 'عادی' : 'مازاد'} تغییر یافت.`,
+      });
+      setPlanToast(`اولویت سفارش در PostgreSQL به ${newPriority === 1 ? 'فوری' : newPriority === 2 ? 'عادی' : 'مازاد'} تغییر یافت.`);
+    } catch (error) {
+      await loadPlanningData();
+      setPlanToast(error instanceof Error ? error.message : 'تغییر اولویت سفارش ناموفق بود.');
     }
-    recordAudit({
-      moduleName: 'برنامه‌ریزی تولید',
-      actionType: 'UPDATE',
-      title: `تغییر اولویت سفارش ${orderId}`,
-      details: `اولویت به ${newPriority === 1 ? 'فوری' : newPriority === 2 ? 'عادی' : 'مازاد'} تغییر یافت.`,
-    });
-    setPlanToast(`اولویت سفارش به ${newPriority === 1 ? 'فوری' : newPriority === 2 ? 'عادی' : 'مازاد'} بروزرسانی شد.`);
   };
 
   const handleApprovePlan = async (id: string, approvedBy: string) => {
