@@ -9025,6 +9025,7 @@ apiRouter.get('/reports/machine-workload-capacity', async (req: Request, res: Re
 // 19.11 Production Delays
 apiRouter.get('/reports/production-delays', (req: Request, res: Response) => {
   try {
+    if (isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'گزارش تأخیرات هنوز به داده‌های رابطه‌ای PostgreSQL منتقل نشده است؛ برای جلوگیری از نمایش اعداد نمونه، موقتاً غیرفعال است.' });
     const filters = extractReportFilters(req);
     const report = getProductionDelaysReport(filters);
     res.json({ success: true, ...report });
@@ -9035,6 +9036,7 @@ apiRouter.get('/reports/production-delays', (req: Request, res: Response) => {
 
 apiRouter.get('/reports/production-delays/analytics', (req: Request, res: Response) => {
   try {
+    if (isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'تحلیل تأخیرات هنوز به داده‌های رابطه‌ای PostgreSQL منتقل نشده است؛ برای جلوگیری از نمایش اعداد نمونه، موقتاً غیرفعال است.' });
     const filters = extractReportFilters(req);
     const analytics = getProductionDelayAnalytics(filters);
     res.json({ success: true, data: analytics });
@@ -9106,6 +9108,7 @@ apiRouter.get('/reports/inventory-movements', async (req: Request, res: Response
 
 apiRouter.get('/reports/inventory-reconciliation', (req: Request, res: Response) => {
   try {
+    if (isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'گزارش انبارگردانی هنوز به اسناد شمارش فیزیکی PostgreSQL متصل نشده است؛ مانده دفتری به‌عنوان شمارش فیزیکی جعل نمی‌شود.' });
     const filters = extractReportFilters(req);
     const report = getInventoryReconciliationReport(filters);
     res.json({ success: true, ...report });
@@ -9263,6 +9266,7 @@ apiRouter.get('/reports/lot-consumption', async (req: Request, res: Response) =>
 
 apiRouter.get('/reports/supplier-matrix', (req: Request, res: Response) => {
   try {
+    if (isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'ماتریس تأمین‌کننده هنوز به تراکنش‌های واقعی قرارداد و موجودی PostgreSQL منتقل نشده است؛ برای جلوگیری از نمایش اعداد نمونه، موقتاً غیرفعال است.' });
     const filters = extractReportFilters(req);
     const report = getSupplierMatrixReport(filters);
     res.json({ success: true, ...report });
