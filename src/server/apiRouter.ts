@@ -9459,6 +9459,7 @@ apiRouter.get('/reports/supplier-matrix', async (req: Request, res: Response) =>
       financialReceivedKg: number;
       consignmentReceivedKg: number;
       totalConsumptionKg: number;
+      otherMovementKg: number;
       closingBalanceKg: number;
       lotIds: Set<string>;
     }>();
@@ -9475,6 +9476,7 @@ apiRouter.get('/reports/supplier-matrix', async (req: Request, res: Response) =>
         financialReceivedKg: 0,
         consignmentReceivedKg: 0,
         totalConsumptionKg: 0,
+        otherMovementKg: 0,
         closingBalanceKg: 0,
         lotIds: new Set<string>(),
       };
@@ -9497,6 +9499,9 @@ apiRouter.get('/reports/supplier-matrix', async (req: Request, res: Response) =>
         }
         if (signedKg < 0 && tx.transactionType === 'OUTBOUND') {
           row.totalConsumptionKg += Math.abs(signedKg);
+        } else if (!(tx.transactionType === 'INBOUND' && signedKg > 0)) {
+          // Transfers and inventory adjustments change book balance but are not material consumption.
+          row.otherMovementKg += signedKg;
         }
         row.closingBalanceKg += signedKg;
       }
@@ -9509,8 +9514,9 @@ apiRouter.get('/reports/supplier-matrix', async (req: Request, res: Response) =>
       const financialReceivedKg = Number(row.financialReceivedKg.toFixed(3));
       const consignmentReceivedKg = Number(row.consignmentReceivedKg.toFixed(3));
       const totalConsumptionKg = Number(row.totalConsumptionKg.toFixed(3));
+      const otherMovementKg = Number(row.otherMovementKg.toFixed(3));
       const closingBalanceKg = Number(row.closingBalanceKg.toFixed(3));
-      const expectedClosing = openingBalanceKg + financialReceivedKg + consignmentReceivedKg - totalConsumptionKg;
+      const expectedClosing = openingBalanceKg + financialReceivedKg + consignmentReceivedKg - totalConsumptionKg + otherMovementKg;
       const variance = closingBalanceKg - expectedClosing;
       return {
         grade: row.grade,
@@ -9519,6 +9525,7 @@ apiRouter.get('/reports/supplier-matrix', async (req: Request, res: Response) =>
         financialReceivedKg,
         consignmentReceivedKg,
         totalConsumptionKg,
+        otherMovementKg,
         closingBalanceKg,
         totalCoilsCount: row.lotIds.size,
         status: Math.abs(variance) <= 0.01 ? 'BALANCED' : variance < 0 ? 'DEFICIT' : 'SURPLUS',
@@ -9534,7 +9541,7 @@ apiRouter.get('/reports/supplier-matrix', async (req: Request, res: Response) =>
         totalRecordsCount: data.length,
         appliedFilters: filters,
         period: { startDate: startDate?.toISOString() || null, endDate: endDate.toISOString() },
-        note: 'مانده افتتاحیه و گردش دوره از کاردکس قطعی اقلام دارای قرارداد محاسبه می‌شود. مصرف فقط خروجی مستقیم OUTBOUND است؛ انتقال بین انبارها مصرف محسوب نمی‌شود. اختلاف کاردکس با ورودی/مصرف به‌صورت کسری یا مازاد مشخص می‌شود.',
+        note: 'مانده افتتاحیه و گردش دوره از کاردکس قطعی اقلام دارای قرارداد محاسبه می‌شود. مصرف فقط خروجی مستقیم OUTBOUND است؛ انتقال و تعدیلات در سایر گردش‌ها ثبت می‌شوند و مصرف محسوب نمی‌شوند. وضعیت کسری/مازاد پس از لحاظ تمام گردش‌های ثبت‌شده محاسبه می‌شود.',
       },
       data,
     });
