@@ -9293,12 +9293,136 @@ apiRouter.get('/reports/lot-consumption', async (req: Request, res: Response) =>
   }
 });
 
-apiRouter.get('/reports/supplier-matrix', (req: Request, res: Response) => {
+// 19.16 Supplier Material Matrix — contract lots and posted inventory ledger only.
+apiRouter.get('/reports/supplier-matrix', async (req: Request, res: Response) => {
   try {
-    if (isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'ماتریس تأمین‌کننده هنوز به تراکنش‌های واقعی قرارداد و موجودی PostgreSQL منتقل نشده است؛ برای جلوگیری از نمایش اعداد نمونه، موقتاً غیرفعال است.' });
+    if (!isDatabaseUrlConfigured()) {
+      return res.status(503).json({ success: false, error: 'ماتریس مواد تأمین‌کننده فقط با اتصال PostgreSQL قابل ارائه است.' });
+    }
+
     const filters = extractReportFilters(req);
-    const report = getSupplierMatrixReport(filters);
-    res.json({ success: true, ...report });
+    const startDate = filters.startDate ? new Date(filters.startDate) : undefined;
+    const endDate = filters.endDate ? new Date(filters.endDate + 'T23:59:59.999Z') : new Date();
+    if ((startDate && Number.isNaN(startDate.getTime())) || Number.isNaN(endDate.getTime())) {
+      return res.status(400).json({ success: false, error: 'بازه تاریخ گزارش معتبر نیست.' });
+    }
+    if (startDate && endDate < startDate) {
+      return res.status(400).json({ success: false, error: 'تاریخ پایان باید بعد از تاریخ شروع باشد.' });
+    }
+
+    const prisma = getPrismaClient();
+    const lots = await prisma.materialLot.findMany({
+      where: {
+        supplierContractId: { not: null },
+        ...(filters.partId ? {
+          OR: [
+            { partId: filters.partId },
+            { part: { is: { partNumber: filters.partId } } },
+          ],
+        } : {}),
+      },
+      include: {
+        material: { select: { grade: true } },
+        transactions: {
+          where: { postingStatus: 'POSTED', transactionDate: { lte: endDate } },
+          select: {
+            transactionDate: true,
+            transactionType: true,
+            ownership: true,
+            weightKgSigned: true,
+          },
+          orderBy: { transactionDate: 'asc' },
+        },
+      },
+      orderBy: [{ receivedDate: 'asc' }, { lotNumber: 'asc' }],
+    });
+
+    const grouped = new Map<string, {
+      grade: string;
+      thicknessMm: number;
+      openingBalanceKg: number;
+      financialReceivedKg: number;
+      consignmentReceivedKg: number;
+      totalConsumptionKg: number;
+      closingBalanceKg: number;
+      lotIds: Set<string>;
+    }>();
+
+    for (const lot of lots as any[]) {
+      const grade = lot.material?.grade;
+      if (!grade) continue;
+      const thicknessMm = Number(lot.thicknessMm);
+      const key = `${grade}|${thicknessMm}`;
+      const row = grouped.get(key) || {
+        grade,
+        thicknessMm,
+        openingBalanceKg: 0,
+        financialReceivedKg: 0,
+        consignmentReceivedKg: 0,
+        totalConsumptionKg: 0,
+        closingBalanceKg: 0,
+        lotIds: new Set<string>(),
+      };
+      row.lotIds.add(lot.id);
+
+      for (const tx of lot.transactions) {
+        const signedKg = Number(tx.weightKgSigned || 0);
+        const beforePeriod = Boolean(startDate && tx.transactionDate < startDate);
+        const inPeriod = (!startDate || tx.transactionDate >= startDate) && tx.transactionDate <= endDate;
+
+        if (beforePeriod) {
+          row.openingBalanceKg += signedKg;
+          continue;
+        }
+        if (!inPeriod) continue;
+
+        if (tx.transactionType === 'INBOUND' && signedKg > 0) {
+          if (tx.ownership === 'SAPCO_SUPPLIER_OWNED') row.consignmentReceivedKg += signedKg;
+          else row.financialReceivedKg += signedKg;
+        }
+        if (signedKg < 0 && tx.transactionType === 'OUTBOUND') {
+          row.totalConsumptionKg += Math.abs(signedKg);
+        }
+        row.closingBalanceKg += signedKg;
+      }
+
+      grouped.set(key, row);
+    }
+
+    const data = [...grouped.values()].map(row => {
+      const openingBalanceKg = Number(row.openingBalanceKg.toFixed(3));
+      const financialReceivedKg = Number(row.financialReceivedKg.toFixed(3));
+      const consignmentReceivedKg = Number(row.consignmentReceivedKg.toFixed(3));
+      const totalConsumptionKg = Number(row.totalConsumptionKg.toFixed(3));
+      const closingBalanceKg = Number(row.closingBalanceKg.toFixed(3));
+      const expectedClosing = openingBalanceKg + financialReceivedKg + consignmentReceivedKg - totalConsumptionKg;
+      const variance = closingBalanceKg - expectedClosing;
+      return {
+        grade: row.grade,
+        thicknessMm: row.thicknessMm,
+        openingBalanceKg,
+        financialReceivedKg,
+        consignmentReceivedKg,
+        totalConsumptionKg,
+        closingBalanceKg,
+        totalCoilsCount: row.lotIds.size,
+        status: Math.abs(variance) <= 0.01 ? 'BALANCED' : variance < 0 ? 'DEFICIT' : 'SURPLUS',
+      };
+    }).sort((a, b) => a.grade.localeCompare(b.grade) || a.thicknessMm - b.thicknessMm);
+
+    res.json({
+      success: true,
+      source: 'POSTGRESQL_MATERIAL_LOTS_AND_POSTED_INVENTORY_TRANSACTIONS',
+      meta: {
+        reportTitle: 'ماتریس حساب مواد تأمین‌کننده (گرید × ضخامت)',
+        generatedAt: new Date().toISOString(),
+        totalRecordsCount: data.length,
+        appliedFilters: filters,
+        period: { startDate: startDate?.toISOString() || null, endDate: endDate.toISOString() },
+        note: 'مانده افتتاحیه و گردش دوره از کاردکس قطعی اقلام دارای قرارداد محاسبه می‌شود. مصرف فقط خروجی مستقیم OUTBOUND است؛ انتقال بین انبارها مصرف محسوب نمی‌شود. اختلاف کاردکس با ورودی/مصرف به‌صورت کسری یا مازاد مشخص می‌شود.',
+      },
+      data,
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در گزارش ماتریس مواد تأمین‌کننده' });
   }
