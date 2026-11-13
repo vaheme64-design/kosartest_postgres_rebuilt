@@ -244,7 +244,7 @@ export interface ProductionDelaysItem {
   plannedDueDate: string;
   estimatedCompletionDate: string;
   delayDays: number;
-  primaryDelayCause: 'RAW_MATERIAL_SHORTAGE' | 'MACHINE_BREAKDOWN' | 'WIP_BOTTLENECK' | 'CAPACITY_OVERLOAD' | 'QUALITY_HOLD';
+  primaryDelayCause: 'RAW_MATERIAL_SHORTAGE' | 'MACHINE_BREAKDOWN' | 'WIP_BOTTLENECK' | 'CAPACITY_OVERLOAD' | 'QUALITY_HOLD' | 'UNASSESSED';
   delayDescription: string;
   isEstimate: boolean;
   machineCode?: string;
