@@ -387,6 +387,7 @@ export interface SupplierMatrixReportItem {
   financialReceivedKg: number;
   consignmentReceivedKg: number;
   totalConsumptionKg: number;
+  otherMovementKg: number;
   closingBalanceKg: number;
   totalCoilsCount: number;
   status: 'BALANCED' | 'DEFICIT' | 'SURPLUS';
