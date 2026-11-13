@@ -122,19 +122,8 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
       if (netRes.success) setNetRequirements(netRes.data);
       if (proposalRes.success) setProposalCount(Array.isArray(proposalRes.data) ? proposalRes.data.length : 0);
       if (ordersRes.success) {
-        try {
-          const cached = localStorage.getItem('kpims_customer_orders_v2');
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setCustomerOrders(parsed);
-              return;
-            }
-          }
-        } catch {
-          // ignore
-        }
-        setCustomerOrders(ordersRes.data);
+        // PostgreSQL is the source of truth; never let an older browser cache override it.
+        setCustomerOrders(Array.isArray(ordersRes.data) ? ordersRes.data : []);
       }
     } catch (err) {
       console.error('Failed to load planning data:', err);
@@ -194,13 +183,7 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
         notes: payload.notes,
         lines: payload.lines,
       };
-      const updated = [newOrder, ...customerOrders];
-      setCustomerOrders(updated);
-      try {
-        localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(updated));
-      } catch {
-        // ignore
-      }
+      setCustomerOrders(prev => [newOrder, ...prev]);
 
       recordAudit({
         moduleName: 'برنامه‌ریزی تولید',
@@ -220,42 +203,27 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
 
   const handleUpdateCustomerOrder = async (orderId: string, payload: any) => {
     try {
-      const updated = customerOrders.map(o => {
-        if (o.id !== orderId) return o;
-        return {
-          ...o,
-          customerName: payload.customerName,
-          contractNumber: payload.contractNumber,
-          dueDate: payload.dueDate,
-          priority: payload.priority,
-          notes: payload.notes,
-          lines: payload.lines,
-        };
-      });
-      setCustomerOrders(updated);
-      try {
-        localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(updated));
-      } catch {
-        // ignore
-      }
-
-      await fetch(`/api/planning/customer-orders/${orderId}`, {
+      const response = await fetch(`/api/planning/customer-orders/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      }).catch(() => null);
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'خطا در ذخیره تغییرات سفارش');
+      }
 
+      await loadPlanningData();
       recordAudit({
         moduleName: 'برنامه‌ریزی تولید',
         actionType: 'UPDATE',
         title: `ویرایش سفارش ${orderId}`,
         details: `بروزرسانی تیراژ، موعد تحویل و اولویت (${payload.priority === 1 ? 'فوری' : 'عادی'})`,
       });
-
-      setPlanToast('تغییرات سفارش با موفقیت ذخیره و در الگوریتم MRP اعمال شد.');
+      setPlanToast('تغییرات سفارش در PostgreSQL ذخیره شد.');
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'خطا در ویرایش سفارش' };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'خطا در ویرایش سفارش' };
     }
   };
 
@@ -267,34 +235,23 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
       cancelLabel: 'انصراف',
       variant: 'danger',
       onConfirm: async () => {
-        const prevSnap = [...customerOrders];
-        const nextList = customerOrders.filter(o => o.id !== order.id);
-        setCustomerOrders(nextList);
         try {
-          localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(nextList));
-          await fetch(`/api/planning/customer-orders/${order.id}`, { method: 'DELETE' });
-        } catch {
-          // ignore
+          const response = await fetch(`/api/planning/customer-orders/${order.id}`, { method: 'DELETE' });
+          const data = await response.json();
+          if (!response.ok || !data.success) {
+            throw new Error(data.error || 'خطا در حذف سفارش');
+          }
+          await loadPlanningData();
+          recordAudit({
+            moduleName: 'برنامه‌ریزی تولید',
+            actionType: 'SOFT_DELETE',
+            title: `حذف سفارش ${order.orderNumber}`,
+            details: `سفارش مشتری ${order.customerName} حذف شد.`,
+          });
+          setPlanToast('سفارش از PostgreSQL حذف شد.');
+        } catch (error) {
+          setPlanToast(error instanceof Error ? error.message : 'حذف سفارش ناموفق بود.');
         }
-
-        recordAudit({
-          moduleName: 'برنامه‌ریزی تولید',
-          actionType: 'SOFT_DELETE',
-          title: `حذف سفارش ${order.orderNumber}`,
-          details: `سفارش مشتری ${order.customerName} با اولویت ${order.priority === 1 ? 'فوری' : 'عادی'} حذف شد.`,
-        });
-
-        showUndoToast({
-          title: `سفارش ${order.orderNumber} با موفقیت حذف گردید`,
-          onUndo: () => {
-            setCustomerOrders(prevSnap);
-            try {
-              localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(prevSnap));
-            } catch {
-              // ignore
-            }
-          },
-        });
       },
     });
   };
