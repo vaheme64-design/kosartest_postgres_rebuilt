@@ -29,7 +29,7 @@ import {
 } from '../../types/productionPlanning';
 import { Part, Machine, DieMold, Routing } from '../../types/inventory';
 import { PlanningDashboardView } from './PlanningDashboardView';
-import { MachineRecommendationView } from './MachineRecommendationView';
+import { RelationalPlanProposalView } from './RelationalPlanProposalView';
 import { NewCustomerOrderModal } from './NewCustomerOrderModal';
 import { MrpModuleView } from './MrpModuleView';
 import { ConsumablesForecastView } from './ConsumablesForecastView';
@@ -97,6 +97,7 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
   const [metrics, setMetrics] = useState<PlanningDashboardMetrics | null>(null);
   const [netRequirements, setNetRequirements] = useState<PartNetRequirement[]>([]);
   const [suggestions, setSuggestions] = useState<ProductionPlanSuggestion[]>([]);
+  const [proposalCount, setProposalCount] = useState(0);
   const [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]);
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<string | null>(null);
   const [focusedMachineCode, setFocusedMachineCode] = useState<string | null>(null);
@@ -110,35 +111,19 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
   const loadPlanningData = async () => {
     setLoading(true);
     try {
-      const [metricsRes, netRes, sugRes, ordersRes] = await Promise.all([
+      const [metricsRes, netRes, proposalRes, ordersRes] = await Promise.all([
         fetch('/api/planning/dashboard-metrics').then(r => r.json()),
         fetch('/api/planning/net-requirements').then(r => r.json()),
-        fetch('/api/planning/suggestions').then(r => r.json()),
+        fetch('/api/planning/proposals').then(r => r.json()),
         fetch('/api/planning/customer-orders').then(r => r.json()),
       ]);
 
       if (metricsRes.success) setMetrics(metricsRes.data);
       if (netRes.success) setNetRequirements(netRes.data);
-      if (sugRes.success) {
-        setSuggestions(sugRes.data);
-        if (!selectedSuggestionId && sugRes.data.length > 0) {
-          setSelectedSuggestionId(sugRes.data[0].id);
-        }
-      }
+      if (proposalRes.success) setProposalCount(Array.isArray(proposalRes.data) ? proposalRes.data.length : 0);
       if (ordersRes.success) {
-        try {
-          const cached = localStorage.getItem('kpims_customer_orders_v2');
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setCustomerOrders(parsed);
-              return;
-            }
-          }
-        } catch {
-          // ignore
-        }
-        setCustomerOrders(ordersRes.data);
+        // PostgreSQL is the source of truth; never let an older browser cache override it.
+        setCustomerOrders(Array.isArray(ordersRes.data) ? ordersRes.data : []);
       }
     } catch (err) {
       console.error('Failed to load planning data:', err);
@@ -154,14 +139,21 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
   const handleRegenerate = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/planning/suggestions/regenerate', { method: 'POST' });
+      const res = await fetch('/api/planning/proposals/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
       const data = await res.json();
-      if (data.success) {
-        await loadPlanningData();
-        if (onGlobalRefresh) await onGlobalRefresh();
+      if (!res.ok || !data.success) {
+        setPlanToast(data.error || 'تولید پیشنهاد برنامه ناموفق بود.');
+        return;
       }
+      await loadPlanningData();
+      setPlanToast('پیشنهاد برنامه جدید از اطلاعات PostgreSQL ایجاد شد. برای بررسی و تأیید به تب پیشنهاد برنامه بروید.');
+      if (onGlobalRefresh) await onGlobalRefresh();
     } catch (err) {
-      console.error('Failed to regenerate plans:', err);
+      setPlanToast(err instanceof Error ? err.message : 'خطا در تولید پیشنهاد برنامه');
     } finally {
       setLoading(false);
     }
@@ -179,25 +171,11 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
         return { success: false, error: data.error || 'خطا در ثبت سفارش' };
       }
 
-      const newOrder: CustomerOrder = data.data || {
-        id: `ORD-${Date.now()}`,
-        orderNumber: payload.orderNumber || `SO-SAPCO-${Date.now().toString().slice(-4)}`,
-        customerName: payload.customerName,
-        contractNumber: payload.contractNumber,
-        orderDate: new Date().toISOString(),
-        dueDate: payload.dueDate,
-        status: 'OPEN',
-        priority: payload.priority,
-        notes: payload.notes,
-        lines: payload.lines,
-      };
-      const updated = [newOrder, ...customerOrders];
-      setCustomerOrders(updated);
-      try {
-        localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(updated));
-      } catch {
-        // ignore
+      if (!data.data?.id || !Array.isArray(data.data.lines)) {
+        throw new Error('سرور ثبت سفارش را تأیید کرد، اما اطلاعات سفارش ذخیره‌شده را برنگرداند. برای جلوگیری از نمایش اطلاعات غیرواقعی، سفارش به فهرست محلی اضافه نشد.');
       }
+      const newOrder: CustomerOrder = data.data;
+      setCustomerOrders(prev => [newOrder, ...prev]);
 
       recordAudit({
         moduleName: 'برنامه‌ریزی تولید',
@@ -217,42 +195,27 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
 
   const handleUpdateCustomerOrder = async (orderId: string, payload: any) => {
     try {
-      const updated = customerOrders.map(o => {
-        if (o.id !== orderId) return o;
-        return {
-          ...o,
-          customerName: payload.customerName,
-          contractNumber: payload.contractNumber,
-          dueDate: payload.dueDate,
-          priority: payload.priority,
-          notes: payload.notes,
-          lines: payload.lines,
-        };
-      });
-      setCustomerOrders(updated);
-      try {
-        localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(updated));
-      } catch {
-        // ignore
-      }
-
-      await fetch(`/api/planning/customer-orders/${orderId}`, {
+      const response = await fetch(`/api/planning/customer-orders/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      }).catch(() => null);
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'خطا در ذخیره تغییرات سفارش');
+      }
 
+      await loadPlanningData();
       recordAudit({
         moduleName: 'برنامه‌ریزی تولید',
         actionType: 'UPDATE',
         title: `ویرایش سفارش ${orderId}`,
         details: `بروزرسانی تیراژ، موعد تحویل و اولویت (${payload.priority === 1 ? 'فوری' : 'عادی'})`,
       });
-
-      setPlanToast('تغییرات سفارش با موفقیت ذخیره و در الگوریتم MRP اعمال شد.');
+      setPlanToast('تغییرات سفارش در PostgreSQL ذخیره شد.');
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'خطا در ویرایش سفارش' };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'خطا در ویرایش سفارش' };
     }
   };
 
@@ -264,53 +227,51 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
       cancelLabel: 'انصراف',
       variant: 'danger',
       onConfirm: async () => {
-        const prevSnap = [...customerOrders];
-        const nextList = customerOrders.filter(o => o.id !== order.id);
-        setCustomerOrders(nextList);
         try {
-          localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(nextList));
-          await fetch(`/api/planning/customer-orders/${order.id}`, { method: 'DELETE' });
-        } catch {
-          // ignore
+          const response = await fetch(`/api/planning/customer-orders/${order.id}`, { method: 'DELETE' });
+          const data = await response.json();
+          if (!response.ok || !data.success) {
+            throw new Error(data.error || 'خطا در حذف سفارش');
+          }
+          await loadPlanningData();
+          recordAudit({
+            moduleName: 'برنامه‌ریزی تولید',
+            actionType: 'SOFT_DELETE',
+            title: `حذف سفارش ${order.orderNumber}`,
+            details: `سفارش مشتری ${order.customerName} حذف شد.`,
+          });
+          setPlanToast('سفارش از PostgreSQL حذف شد.');
+        } catch (error) {
+          setPlanToast(error instanceof Error ? error.message : 'حذف سفارش ناموفق بود.');
         }
-
-        recordAudit({
-          moduleName: 'برنامه‌ریزی تولید',
-          actionType: 'SOFT_DELETE',
-          title: `حذف سفارش ${order.orderNumber}`,
-          details: `سفارش مشتری ${order.customerName} با اولویت ${order.priority === 1 ? 'فوری' : 'عادی'} حذف شد.`,
-        });
-
-        showUndoToast({
-          title: `سفارش ${order.orderNumber} با موفقیت حذف گردید`,
-          onUndo: () => {
-            setCustomerOrders(prevSnap);
-            try {
-              localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(prevSnap));
-            } catch {
-              // ignore
-            }
-          },
-        });
       },
     });
   };
 
-  const handleQuickUpdatePriority = (orderId: string, newPriority: 1 | 2 | 3) => {
-    const updated = customerOrders.map(o => (o.id === orderId ? { ...o, priority: newPriority } : o));
-    setCustomerOrders(updated);
+  const handleQuickUpdatePriority = async (orderId: string, newPriority: 1 | 2 | 3) => {
     try {
-      localStorage.setItem('kpims_customer_orders_v2', JSON.stringify(updated));
-    } catch {
-      // ignore
+      const response = await fetch(`/api/planning/customer-orders/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: newPriority }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'تغییر اولویت سفارش ذخیره نشد.');
+      }
+
+      await loadPlanningData();
+      recordAudit({
+        moduleName: 'برنامه‌ریزی تولید',
+        actionType: 'UPDATE',
+        title: `تغییر اولویت سفارش ${orderId}`,
+        details: `اولویت به ${newPriority === 1 ? 'فوری' : newPriority === 2 ? 'عادی' : 'مازاد'} تغییر یافت.`,
+      });
+      setPlanToast(`اولویت سفارش در PostgreSQL به ${newPriority === 1 ? 'فوری' : newPriority === 2 ? 'عادی' : 'مازاد'} تغییر یافت.`);
+    } catch (error) {
+      await loadPlanningData();
+      setPlanToast(error instanceof Error ? error.message : 'تغییر اولویت سفارش ناموفق بود.');
     }
-    recordAudit({
-      moduleName: 'برنامه‌ریزی تولید',
-      actionType: 'UPDATE',
-      title: `تغییر اولویت سفارش ${orderId}`,
-      details: `اولویت به ${newPriority === 1 ? 'فوری' : newPriority === 2 ? 'عادی' : 'مازاد'} تغییر یافت.`,
-    });
-    setPlanToast(`اولویت سفارش به ${newPriority === 1 ? 'فوری' : newPriority === 2 ? 'عادی' : 'مازاد'} بروزرسانی شد.`);
   };
 
   const handleApprovePlan = async (id: string, approvedBy: string) => {
@@ -442,7 +403,7 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
             { id: 'mrp', label: '۱. انفجار BOM و نیاز ورق (MRP)' },
             { id: 'capacity_planning', label: '۲. تقویم ظرفیت ماشین‌آلات (Capacity Planning)' },
             { id: 'orders', label: `۳. سفارشات مشتریان (${toPersianDigits(customerOrders.length)})` },
-            { id: 'recommendations', label: `۴. پیشنهاد برنامه و پرس (${toPersianDigits(suggestions.length)})` },
+            { id: 'recommendations', label: `۴. پیشنهاد برنامه و پرس (${toPersianDigits(proposalCount)})` },
             { id: 'daily_schedule', label: '۵. تقویم روزانه سالن‌ها' },
             { id: 'dashboard', label: '۶. موازنه تقاضا و ظرفیت' },
           ].map(item => (
@@ -527,15 +488,11 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
 
       {/* 2. Machine Recommendations Sub-Tab */}
       {activeSubTab === 'recommendations' && (
-        <MachineRecommendationView
-          suggestions={suggestions}
-          selectedSuggestionId={selectedSuggestionId}
-          onSelectSuggestion={setSelectedSuggestionId}
-          onApprovePlan={handleApprovePlan}
-          onReleaseMo={handleReleaseMo}
-          onRevisePlan={handleRevisePlan}
-          onRefresh={loadPlanningData}
-          loading={loading}
+        <RelationalPlanProposalView
+          onReleased={async () => {
+            await loadPlanningData();
+            if (onGlobalRefresh) await onGlobalRefresh();
+          }}
         />
       )}
 

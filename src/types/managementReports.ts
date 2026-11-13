@@ -137,6 +137,32 @@ export interface MaterialConsumptionVsStandardItem {
   isOverConsumption: boolean;
 }
 
+// 6a. Actual material consumption from the posted inventory ledger and production reports
+export interface MaterialConsumptionActualItem {
+  moId: string;
+  moNumber: string;
+  productPartCode: string;
+  productPartName: string;
+  operationId: string;
+  operationStep: number;
+  operationCode: string;
+  operationName: string;
+  processType: ProcessType;
+  materialCode: string;
+  materialName: string;
+  materialGrade: string;
+  actualIssuedMaterialKg: number;
+  actualProducedGoodQty: number;
+  actualScrapQty: number;
+  actualScrapWeightKg: number;
+  actualMachineNames: string[];
+  actualOperatorNames: string[];
+  coilNumbers: string[];
+  contractNumbers: string[];
+  productionReportCount: number;
+  lastProductionReportAt?: string;
+}
+
 // 7. SAPCO Material Account
 export interface SapcoMaterialAccountItem {
   contractId: string;
@@ -218,7 +244,7 @@ export interface ProductionDelaysItem {
   plannedDueDate: string;
   estimatedCompletionDate: string;
   delayDays: number;
-  primaryDelayCause: 'RAW_MATERIAL_SHORTAGE' | 'MACHINE_BREAKDOWN' | 'WIP_BOTTLENECK' | 'CAPACITY_OVERLOAD' | 'QUALITY_HOLD';
+  primaryDelayCause: 'RAW_MATERIAL_SHORTAGE' | 'MACHINE_BREAKDOWN' | 'WIP_BOTTLENECK' | 'CAPACITY_OVERLOAD' | 'QUALITY_HOLD' | 'UNASSESSED';
   delayDescription: string;
   isEstimate: boolean;
   machineCode?: string;
@@ -229,7 +255,7 @@ export interface ProductionDelaysItem {
 }
 
 export interface DelayCauseDistribution {
-  causeKey: 'RAW_MATERIAL_SHORTAGE' | 'MACHINE_BREAKDOWN' | 'WIP_BOTTLENECK' | 'CAPACITY_OVERLOAD' | 'QUALITY_HOLD';
+  causeKey: 'RAW_MATERIAL_SHORTAGE' | 'MACHINE_BREAKDOWN' | 'WIP_BOTTLENECK' | 'CAPACITY_OVERLOAD' | 'QUALITY_HOLD' | 'UNASSESSED';
   causeLabelFa: string;
   itemsCount: number;
   percentage: number;
@@ -242,13 +268,13 @@ export interface ProductionDelayAnalyticsSummary {
   totalDelayedItemsCount: number;
   averageDelayDays: number;
   maxDelayDays: number;
-  onTimeDeliveryRatePercent: number; // OTIF
+  onTimeDeliveryRatePercent: number | null; // null until actual delivery timestamps are recorded
   customerOrdersDelayedCount: number;
   openMosDelayedCount: number;
   completedLateMosCount: number;
-  lateOperationsCount: number;
+  lateOperationsCount: number | null;
   criticalUrgencyCount: number;
-  estimatedPenaltyRiskRials: number;
+  estimatedPenaltyRiskRials: number | null;
   causesBreakdown: DelayCauseDistribution[];
   topDelayedParts: {
     partCode: string;
@@ -361,6 +387,7 @@ export interface SupplierMatrixReportItem {
   financialReceivedKg: number;
   consignmentReceivedKg: number;
   totalConsumptionKg: number;
+  otherMovementKg: number;
   closingBalanceKg: number;
   totalCoilsCount: number;
   status: 'BALANCED' | 'DEFICIT' | 'SURPLUS';

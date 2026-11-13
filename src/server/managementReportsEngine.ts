@@ -825,6 +825,11 @@ export function getProductionDelayAnalytics(filters?: ReportFilterParams): Produ
       action: 'تنظیم لقی و انطباق سنبه و ماتریس و بازرسی سریع نمونه اولیه (First Piece)',
       badgeColor: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
     },
+    UNASSESSED: {
+      label: 'علت تأخیر ثبت نشده',
+      action: 'بررسی میدانی و ثبت علت واقعی تأخیر در دستور ساخت یا سفارش',
+      badgeColor: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+    },
   };
 
   const causeCounts: Record<string, { count: number; pieces: number }> = {};
@@ -1241,6 +1246,7 @@ export function getSupplierMatrixReport(filters?: ReportFilterParams): {
       financialReceivedKg: g.financialReceivedKg,
       consignmentReceivedKg: g.consignmentReceivedKg,
       totalConsumptionKg: g.totalConsumptionKg,
+      otherMovementKg: 0,
       closingBalanceKg: g.closingBalanceKg,
       totalCoilsCount: g.count,
       status: 'BALANCED',
