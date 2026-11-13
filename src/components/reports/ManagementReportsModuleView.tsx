@@ -1539,7 +1539,7 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
                             {formatToJalali(r.plannedDueDate)}
                           </td>
                           <td className="py-3 px-3 text-center font-sans text-[11px] text-amber-700 font-bold">
-                            {formatToJalali(r.estimatedCompletionDate)}
+                            {r.estimatedCompletionDate ? formatToJalali(r.estimatedCompletionDate) : 'ثبت نشده'}
                           </td>
                           <td className="py-3 px-3 text-center font-black text-sm">
                             <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
