@@ -1553,6 +1553,7 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
                               {r.primaryDelayCause === 'WIP_BOTTLENECK' && 'گلوگاه کار در جریان'}
                               {r.primaryDelayCause === 'CAPACITY_OVERLOAD' && 'بیش‌بار ظرفیت تناژ'}
                               {r.primaryDelayCause === 'QUALITY_HOLD' && 'توقف کیفی ابعادی'}
+                              {r.primaryDelayCause === 'UNASSESSED' && 'علت بررسی‌نشده'}
                             </span>
                             <span className="text-[10px] text-slate-500 block mt-0.5 line-clamp-1" title={r.delayDescription}>
                               {r.delayDescription}
