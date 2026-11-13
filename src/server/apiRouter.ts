@@ -9178,17 +9178,131 @@ apiRouter.get('/reports/production-delays', async (req: Request, res: Response) 
   }
 });
 
-apiRouter.get('/reports/production-delays/analytics', (req: Request, res: Response) => {
+apiRouter.get('/reports/production-delays/analytics', async (req: Request, res: Response) => {
   try {
-    if (isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'تحلیل تأخیرات هنوز به داده‌های رابطه‌ای PostgreSQL منتقل نشده است؛ برای جلوگیری از نمایش اعداد نمونه، موقتاً غیرفعال است.' });
+    if (!isDatabaseUrlConfigured()) {
+      return res.status(503).json({ success: false, error: 'تحلیل تأخیرات فقط از داده‌های عملیاتی PostgreSQL قابل ارائه است.' });
+    }
+
     const filters = extractReportFilters(req);
-    const analytics = getProductionDelayAnalytics(filters);
-    res.json({ success: true, data: analytics });
+    const now = new Date();
+    const startDate = filters.startDate ? new Date(filters.startDate) : undefined;
+    const endDate = filters.endDate ? new Date(filters.endDate + 'T23:59:59.999Z') : undefined;
+    if ((startDate && Number.isNaN(startDate.getTime())) || (endDate && Number.isNaN(endDate.getTime()))) {
+      return res.status(400).json({ success: false, error: 'بازه تاریخ گزارش معتبر نیست.' });
+    }
+    if (startDate && endDate && endDate < startDate) {
+      return res.status(400).json({ success: false, error: 'تاریخ پایان باید بعد از تاریخ شروع باشد.' });
+    }
+
+    const dueDateFilter: any = { lt: now };
+    if (startDate) dueDateFilter.gte = startDate;
+    if (endDate) dueDateFilter.lte = endDate;
+    const partFilter = filters.partId
+      ? { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] }
+      : {};
+    const prisma = getPrismaClient();
+
+    const [orderLines, openMos, completedLateMos] = await Promise.all([
+      prisma.customerOrderLine.findMany({
+        where: {
+          requestedDate: dueDateFilter,
+          status: { not: 'CANCELLED' },
+          order: { documentStatus: 'CONFIRMED', ...(filters.customerName ? { customer: { is: { name: { contains: filters.customerName, mode: 'insensitive' } } } } : {}) },
+          ...partFilter,
+        },
+        include: { part: { select: { partNumber: true, name: true } } },
+        take: 5000,
+      }),
+      prisma.manufacturingOrder.findMany({
+        where: {
+          scheduledEndDate: dueDateFilter,
+          status: { notIn: ['COMPLETED', 'CLOSED', 'CANCELLED'] },
+          ...partFilter,
+        },
+        include: { part: { select: { partNumber: true, name: true } } },
+        take: 5000,
+      }),
+      prisma.manufacturingOrder.count({
+        where: {
+          status: 'COMPLETED',
+          actualEndDate: { not: null },
+          scheduledEndDate: { lt: now },
+          actualEndDate: { gt: prisma.manufacturingOrder.fields.scheduledEndDate },
+          ...partFilter,
+        },
+      }).catch(async () => {
+        // Prisma cannot compare two columns in all generated-client versions; compute from a bounded read instead.
+        const late = await prisma.manufacturingOrder.findMany({
+          where: { status: 'COMPLETED', actualEndDate: { not: null }, scheduledEndDate: { lt: now }, ...partFilter },
+          select: { scheduledEndDate: true, actualEndDate: true },
+          take: 5000,
+        });
+        return late.filter((mo: any) => mo.actualEndDate && mo.actualEndDate > mo.scheduledEndDate).length;
+      }),
+    ]);
+
+    const delayed = [
+      ...orderLines.flatMap((line: any) => {
+        const qty = Math.max(0, Number(line.orderedQty) - Number(line.deliveredQty));
+        if (!qty) return [];
+        const days = Math.max(1, Math.ceil((now.getTime() - line.requestedDate.getTime()) / 86400000));
+        return [{ partCode: line.part?.partNumber || line.partId, partName: line.part?.name || '', quantity: qty, days, section: 'CUSTOMER_ORDER' }];
+      }),
+      ...openMos.flatMap((mo: any) => {
+        const qty = Math.max(0, Number(mo.targetQty) - Number(mo.completedQty) - Number(mo.scrapQty));
+        if (!qty) return [];
+        const days = Math.max(1, Math.ceil((now.getTime() - mo.scheduledEndDate.getTime()) / 86400000));
+        return [{ partCode: mo.part?.partNumber || mo.partId, partName: mo.part?.name || '', quantity: qty, days, section: 'OPEN_MO' }];
+      }),
+    ];
+
+    const totalDelayedItemsCount = delayed.length;
+    const totalDays = delayed.reduce((sum, item) => sum + item.days, 0);
+    const maxDelayDays = delayed.reduce((max, item) => Math.max(max, item.days), 0);
+    const partGroups = new Map<string, { partCode: string; partName: string; delayedCount: number; maxDelayDays: number; openDelayedQty: number }>();
+    delayed.forEach(item => {
+      const row = partGroups.get(item.partCode) || { partCode: item.partCode, partName: item.partName, delayedCount: 0, maxDelayDays: 0, openDelayedQty: 0 };
+      row.delayedCount += 1;
+      row.maxDelayDays = Math.max(row.maxDelayDays, item.days);
+      row.openDelayedQty += item.quantity;
+      partGroups.set(item.partCode, row);
+    });
+    const causeItems = delayed.filter(item => true).length;
+    const analytics = {
+      totalDelayedItemsCount,
+      averageDelayDays: totalDelayedItemsCount ? Math.round((totalDays / totalDelayedItemsCount) * 10) / 10 : 0,
+      maxDelayDays,
+      onTimeDeliveryRatePercent: null,
+      customerOrdersDelayedCount: delayed.filter(item => item.section === 'CUSTOMER_ORDER').length,
+      openMosDelayedCount: delayed.filter(item => item.section === 'OPEN_MO').length,
+      completedLateMosCount,
+      lateOperationsCount: null,
+      criticalUrgencyCount: delayed.filter(item => item.days > 7).length,
+      estimatedPenaltyRiskRials: null,
+      causesBreakdown: [{
+        causeKey: 'UNASSESSED',
+        causeLabelFa: 'علت تأخیر ثبت نشده',
+        itemsCount: causeItems,
+        percentage: totalDelayedItemsCount ? 100 : 0,
+        totalDelayedPieces: delayed.reduce((sum, item) => sum + item.quantity, 0),
+        recommendedAction: 'بررسی میدانی و ثبت علت واقعی تأخیر در دستور ساخت یا سفارش',
+        badgeColor: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+      }],
+      topDelayedParts: Array.from(partGroups.values()).sort((a, b) => b.maxDelayDays - a.maxDelayDays).slice(0, 5).map(row => ({ ...row, primaryCause: 'علت تأخیر ثبت نشده' })),
+      notes: [
+        'آمار از سفارش‌های تأییدشده و دستورساخت‌های ثبت‌شده در PostgreSQL استخراج شده است.',
+        'نرخ تحویل به‌موقع محاسبه نشده؛ مدل فعلی تاریخ واقعی تحویل هر ردیف سفارش را نگهداری نمی‌کند.',
+        'ریسک جریمه محاسبه نشده؛ نرخ و قواعد جریمه قرارداد در داده‌های قابل اتکا موجود نیست.',
+        'علت تأخیر و تأخیر عملیات فقط پس از ثبت داده‌های علت و زمان‌بندی واقعی عملیات قابل تحلیل است.',
+      ],
+    };
+
+    res.json({ success: true, source: 'POSTGRESQL_DELAY_ANALYTICS', data: analytics });
   } catch (error) {
     res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در تحلیل شاخص‌های تأخیر تولید' });
   }
 });
-
 // 19.12 Inventory Movements
 apiRouter.get('/reports/inventory-movements', async (req: Request, res: Response) => {
   try {
