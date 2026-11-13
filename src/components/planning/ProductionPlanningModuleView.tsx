@@ -171,18 +171,10 @@ export const ProductionPlanningModuleView: React.FC<ProductionPlanningModuleView
         return { success: false, error: data.error || 'خطا در ثبت سفارش' };
       }
 
-      const newOrder: CustomerOrder = data.data || {
-        id: `ORD-${Date.now()}`,
-        orderNumber: payload.orderNumber || `SO-SAPCO-${Date.now().toString().slice(-4)}`,
-        customerName: payload.customerName,
-        contractNumber: payload.contractNumber,
-        orderDate: new Date().toISOString(),
-        dueDate: payload.dueDate,
-        status: 'OPEN',
-        priority: payload.priority,
-        notes: payload.notes,
-        lines: payload.lines,
-      };
+      if (!data.data?.id || !Array.isArray(data.data.lines)) {
+        throw new Error('سرور ثبت سفارش را تأیید کرد، اما اطلاعات سفارش ذخیره‌شده را برنگرداند. برای جلوگیری از نمایش اطلاعات غیرواقعی، سفارش به فهرست محلی اضافه نشد.');
+      }
+      const newOrder: CustomerOrder = data.data;
       setCustomerOrders(prev => [newOrder, ...prev]);
 
       recordAudit({
