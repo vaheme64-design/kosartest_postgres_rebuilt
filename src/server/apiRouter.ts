@@ -9051,13 +9051,128 @@ apiRouter.get('/reports/machine-workload-capacity', async (req: Request, res: Re
   }
 });
 
-// 19.11 Production Delays
-apiRouter.get('/reports/production-delays', (req: Request, res: Response) => {
+// 19.11 Production Delays — overdue records from confirmed PostgreSQL orders and open MOs.
+apiRouter.get('/reports/production-delays', async (req: Request, res: Response) => {
   try {
-    if (isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'گزارش تأخیرات هنوز به داده‌های رابطه‌ای PostgreSQL منتقل نشده است؛ برای جلوگیری از نمایش اعداد نمونه، موقتاً غیرفعال است.' });
+    if (!isDatabaseUrlConfigured()) {
+      return res.status(503).json({ success: false, error: 'گزارش تأخیرات فقط از داده‌های عملیاتی PostgreSQL قابل ارائه است؛ اتصال DATABASE_URL برقرار نیست.' });
+    }
+
     const filters = extractReportFilters(req);
-    const report = getProductionDelaysReport(filters);
-    res.json({ success: true, ...report });
+    const now = new Date();
+    const startDate = filters.startDate ? new Date(filters.startDate) : undefined;
+    const endDate = filters.endDate ? new Date(filters.endDate + 'T23:59:59.999Z') : undefined;
+    if ((startDate && Number.isNaN(startDate.getTime())) || (endDate && Number.isNaN(endDate.getTime()))) {
+      return res.status(400).json({ success: false, error: 'بازه تاریخ گزارش معتبر نیست.' });
+    }
+    if (startDate && endDate && endDate < startDate) {
+      return res.status(400).json({ success: false, error: 'تاریخ پایان باید بعد از تاریخ شروع باشد.' });
+    }
+
+    const dueDateFilter: any = { lt: now };
+    if (startDate) dueDateFilter.gte = startDate;
+    if (endDate) dueDateFilter.lte = endDate;
+    const partFilter = filters.partId
+      ? { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] }
+      : {};
+    const prisma = getPrismaClient();
+
+    const overdueOrderLines = await prisma.customerOrderLine.findMany({
+      where: {
+        requestedDate: dueDateFilter,
+        status: { not: 'CANCELLED' },
+        order: { documentStatus: 'CONFIRMED', ...(filters.customerName ? { customer: { is: { name: { contains: filters.customerName, mode: 'insensitive' } } } } : {}) },
+        ...partFilter,
+      },
+      include: {
+        part: { select: { partNumber: true, name: true } },
+        order: { include: { customer: { select: { name: true } } } },
+      },
+      orderBy: [{ requestedDate: 'asc' }, { order: { orderNumber: 'asc' } }],
+      take: 5000,
+    });
+
+    const openMos = await prisma.manufacturingOrder.findMany({
+      where: {
+        scheduledEndDate: dueDateFilter,
+        status: { notIn: ['COMPLETED', 'CLOSED', 'CANCELLED'] },
+        ...partFilter,
+      },
+      include: {
+        part: { select: { partNumber: true, name: true } },
+        planLine: { include: { customerOrderLine: { include: { order: { include: { customer: { select: { name: true } } } } } } } },
+      },
+      orderBy: [{ scheduledEndDate: 'asc' }, { moNumber: 'asc' }],
+      take: 5000,
+    });
+
+    const dayMs = 86_400_000;
+    const urgency = (days: number): 'CRITICAL' | 'HIGH' | 'MEDIUM' =>
+      days > 7 ? 'CRITICAL' : days > 3 ? 'HIGH' : 'MEDIUM';
+    const data = [
+      ...overdueOrderLines.flatMap((line: any) => {
+        const remaining = Math.max(0, Number(line.orderedQty) - Number(line.deliveredQty));
+        if (remaining <= 0) return [];
+        const due = line.requestedDate as Date;
+        const days = Math.max(1, Math.ceil((now.getTime() - due.getTime()) / dayMs));
+        return [{
+          section: 'CUSTOMER_ORDER',
+          sectionLabelFa: 'ردیف سفارش مشتری معوق',
+          documentType: 'CUSTOMER_ORDER',
+          referenceNumber: line.order.orderNumber,
+          customerOrPlan: line.order.customer?.name || '—',
+          partCode: line.part?.partNumber || line.partId,
+          partName: line.part?.name || '',
+          quantity: remaining,
+          plannedDueDate: due.toISOString(),
+          estimatedCompletionDate: '',
+          delayDays: days,
+          primaryDelayCause: 'UNASSESSED',
+          delayDescription: 'علت تأخیر در داده‌های ثبت‌شده مشخص نشده است.',
+          isEstimate: false,
+          urgencyLevel: urgency(days),
+        }];
+      }),
+      ...openMos.flatMap((mo: any) => {
+        const remaining = Math.max(0, Number(mo.targetQty) - Number(mo.completedQty) - Number(mo.scrapQty));
+        if (remaining <= 0) return [];
+        const due = mo.scheduledEndDate as Date;
+        const days = Math.max(1, Math.ceil((now.getTime() - due.getTime()) / dayMs));
+        const customer = mo.planLine?.customerOrderLine?.order?.customer?.name;
+        return [{
+          section: 'OPEN_MO',
+          sectionLabelFa: 'دستور ساخت باز و معوق',
+          documentType: 'MANUFACTURING_ORDER',
+          referenceNumber: mo.moNumber,
+          customerOrPlan: customer || mo.planId || '—',
+          partCode: mo.part?.partNumber || mo.partId,
+          partName: mo.part?.name || '',
+          quantity: remaining,
+          plannedDueDate: due.toISOString(),
+          estimatedCompletionDate: '',
+          delayDays: days,
+          primaryDelayCause: 'UNASSESSED',
+          delayDescription: 'علت تأخیر در داده‌های ثبت‌شده مشخص نشده است.',
+          isEstimate: false,
+          urgencyLevel: urgency(days),
+        }];
+      }),
+    ].sort((a, b) => a.plannedDueDate.localeCompare(b.plannedDueDate));
+
+    res.json({
+      success: true,
+      source: 'POSTGRESQL_CONFIRMED_CUSTOMER_ORDER_LINES_AND_OPEN_MANUFACTURING_ORDERS',
+      meta: {
+        reportTitle: 'گزارش سفارش‌ها و دستورساخت‌های معوق',
+        generatedAt: now.toISOString(),
+        generatedBy: 'سیستم',
+        appliedFilters: Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)])),
+        totalRecordsCount: data.length,
+        note: 'گزارش فقط موارد باز با موعد گذشته را نمایش می‌دهد. علت تأخیر، تاریخ تکمیل تخمینی و ریسک جریمه تا زمان ثبت داده معتبر، تعیین نمی‌شوند.',
+      },
+      data,
+      truncated: overdueOrderLines.length === 5000 || openMos.length === 5000,
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در گزارش تأخیرات تولید' });
   }
