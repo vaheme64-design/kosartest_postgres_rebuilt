@@ -1246,6 +1246,7 @@ export function getSupplierMatrixReport(filters?: ReportFilterParams): {
       financialReceivedKg: g.financialReceivedKg,
       consignmentReceivedKg: g.consignmentReceivedKg,
       totalConsumptionKg: g.totalConsumptionKg,
+      otherMovementKg: 0,
       closingBalanceKg: g.closingBalanceKg,
       totalCoilsCount: g.count,
       status: 'BALANCED',
