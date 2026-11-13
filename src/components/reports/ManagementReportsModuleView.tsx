@@ -550,7 +550,7 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
         break;
       }
       case 'supplier_matrix': {
-        const headers = ['گرید فولاد', 'ضخامت (mm)', 'اول دوره (kg)', 'رسید ملکی/خرید (kg)', 'رسید امانی ساپکو (kg)', 'جمع مصرف (kg)', 'مانده پایانی دوره (kg)', 'تعداد کویل'];
+        const headers = ['گرید فولاد', 'ضخامت (mm)', 'اول دوره (kg)', 'رسید ملکی/خرید (kg)', 'رسید امانی ساپکو (kg)', 'جمع مصرف (kg)', 'سایر گردش‌ها (kg)', 'مانده پایانی دوره (kg)', 'تعداد کویل'];
         const rows = supplierMatrixData.map(r => [
           r.grade,
           r.thicknessMm,
@@ -558,6 +558,7 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
           r.financialReceivedKg,
           r.consignmentReceivedKg,
           r.totalConsumptionKg,
+          r.otherMovementKg,
           r.closingBalanceKg,
           r.totalCoilsCount,
         ]);
@@ -1812,7 +1813,8 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
                   <th className="py-3 px-3 text-center">اول دوره (kg)</th>
                   <th className="py-3 px-3 text-center text-blue-700">رسید امانی ساپکو (kg)</th>
                   <th className="py-3 px-3 text-center text-indigo-700">رسید خرید آزاد / ملکی (kg)</th>
-                  <th className="py-3 px-3 text-center text-amber-700">جمع مصرف پرسی (kg)</th>
+                  <th className="py-3 px-3 text-center text-amber-700">جمع مصرف مستقیم (kg)</th>
+                  <th className="py-3 px-3 text-center text-slate-600">سایر گردش‌ها (kg)</th>
                   <th className="py-3 px-3 text-center text-emerald-700 font-bold">مانده پایان دوره (kg)</th>
                   <th className="py-3 px-3 text-center">تعداد کویل</th>
                 </tr>
@@ -1826,6 +1828,7 @@ export const ManagementReportsModuleView: React.FC<ManagementReportsModuleViewPr
                     <td className="py-3 px-3 text-center text-blue-700 font-semibold">{formatNumber(r.consignmentReceivedKg)}</td>
                     <td className="py-3 px-3 text-center text-indigo-700 font-semibold">{formatNumber(r.financialReceivedKg)}</td>
                     <td className="py-3 px-3 text-center text-amber-700 font-bold">{formatNumber(r.totalConsumptionKg)}</td>
+                    <td className="py-3 px-3 text-center text-slate-600">{formatNumber(r.otherMovementKg)}</td>
                     <td className="py-3 px-3 text-center font-black text-emerald-700">{formatNumber(r.closingBalanceKg)}</td>
                     <td className="py-3 px-3 text-center font-sans">
                       <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-bold">
