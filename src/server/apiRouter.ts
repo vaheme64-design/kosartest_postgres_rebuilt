@@ -7844,12 +7844,195 @@ function extractReportFilters(req: Request): ReportFilterParams {
   };
 }
 
-// 19.0 Dashboard Summary
-apiRouter.get('/reports/dashboard-summary', (req: Request, res: Response) => {
+// 19.0 Dashboard Summary — PostgreSQL is the sole source of truth.
+apiRouter.get('/reports/dashboard-summary', async (req: Request, res: Response) => {
   try {
+    if (!isDatabaseUrlConfigured()) {
+      return res.status(503).json({
+        success: false,
+        error: 'داشبورد مدیریتی فقط پس از اتصال PostgreSQL قابل ارائه است؛ داده‌های نمونه برای این گزارش نمایش داده نمی‌شوند.',
+      });
+    }
+
     const filters = extractReportFilters(req);
-    const summary = getManagementDashboardSummary(filters);
-    res.json({ success: true, data: summary });
+    const prisma = getPrismaClient();
+    const now = new Date();
+    const dateWhere = filters.startDate || filters.endDate
+      ? {
+          gte: filters.startDate ? new Date(filters.startDate) : undefined,
+          lte: filters.endDate ? new Date(filters.endDate + 'T23:59:59.999Z') : undefined,
+        }
+      : undefined;
+
+    const [
+      customerOrders,
+      planLines,
+      activeManufacturingOrders,
+      productionTotals,
+      scrapWeight,
+      finishedGoodsBalances,
+      rawMaterialBalances,
+      wipRows,
+    ] = await Promise.all([
+      prisma.customerOrder.findMany({
+        where: {
+          documentStatus: { not: 'CANCELLED' },
+          ...(filters.customerId ? { customerId: filters.customerId } : {}),
+          ...(filters.customerName ? { customer: { is: { name: { contains: filters.customerName, mode: 'insensitive' } } } } : {}),
+        },
+        select: {
+          id: true,
+          orderLines: {
+            where: filters.partId ? { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } : undefined,
+            select: { orderedQty: true, deliveredQty: true, requestedDate: true },
+          },
+        },
+      }),
+      prisma.productionPlanLine.findMany({
+        where: {
+          plan: { is: { status: { not: 'CANCELLED' } } },
+          ...(filters.partId ? { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } : {}),
+          ...(dateWhere ? { plannedEndDate: dateWhere } : {}),
+        },
+        select: { plannedQty: true },
+      }),
+      prisma.manufacturingOrder.findMany({
+        where: {
+          status: { in: ['PLANNED', 'RELEASED', 'IN_PROGRESS', 'SUSPENDED'] },
+          ...(filters.partId ? { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } : {}),
+          ...(dateWhere ? { scheduledEndDate: dateWhere } : {}),
+        },
+        select: {
+          id: true,
+          targetQty: true,
+          completedQty: true,
+          scheduledEndDate: true,
+          part: { select: { materialId: true, weightGrossKg: true } },
+        },
+      }),
+      prisma.productionReport.aggregate({
+        where: {
+          postingStatus: 'POSTED',
+          documentStatus: 'CONFIRMED',
+          ...(dateWhere ? { reportDate: dateWhere } : {}),
+          ...(filters.partId ? { manufacturingOrder: { is: { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } } } : {}),
+        },
+        _sum: { goodQuantity: true, scrapQuantity: true },
+      }),
+      prisma.productionScrap.aggregate({
+        where: {
+          productionReport: {
+            is: {
+              postingStatus: 'POSTED',
+              documentStatus: 'CONFIRMED',
+              ...(dateWhere ? { reportDate: dateWhere } : {}),
+            },
+          },
+          ...(filters.partId ? { productionOperation: { is: { manufacturingOrder: { is: { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } } } } } : {}),
+        },
+        _sum: { weightKg: true },
+      }),
+      prisma.stockBalance.findMany({
+        where: {
+          qualityStatus: 'AVAILABLE',
+          part: { is: { category: 'FINISHED_GOOD' } },
+          ...(filters.partId ? { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } : {}),
+        },
+        select: { quantityAvailable: true, part: { select: { unit: { select: { code: true } } } } },
+      }),
+      prisma.stockBalance.findMany({
+        where: {
+          qualityStatus: 'AVAILABLE',
+          part: { is: { category: 'RAW_MATERIAL' } },
+        },
+        select: { weightKgAvailable: true, part: { select: { materialId: true } } },
+      }),
+      getDatabaseWipReportRows(filters),
+    ]);
+
+    const activeOrders = customerOrders.filter((order: any) =>
+      order.orderLines.some((line: any) => Number(line.orderedQty) > Number(line.deliveredQty))
+    );
+    const totalGrossDemandPieces = customerOrders.reduce((sum: number, order: any) =>
+      sum + order.orderLines.reduce((lineSum: number, line: any) =>
+        lineSum + Math.max(0, Number(line.orderedQty) - Number(line.deliveredQty)), 0), 0
+    );
+    const totalPlannedProductionPieces = planLines.reduce((sum: number, line: any) => sum + Number(line.plannedQty), 0);
+    const totalActualProducedPieces = Number(productionTotals._sum.goodQuantity || 0);
+    const totalScrapPieces = Number(productionTotals._sum.scrapQuantity || 0);
+    const totalScrapWeightKg = Number(scrapWeight._sum.weightKg || 0);
+
+    const demandByMaterial = new Map<string, number>();
+    for (const order of activeManufacturingOrders as any[]) {
+      const materialId = order.part.materialId;
+      const remaining = Math.max(0, Number(order.targetQty) - Number(order.completedQty));
+      const requiredKg = remaining * Number(order.part.weightGrossKg || 0);
+      if (materialId && requiredKg > 0) demandByMaterial.set(materialId, (demandByMaterial.get(materialId) || 0) + requiredKg);
+    }
+    const availableByMaterial = new Map<string, number>();
+    for (const balance of rawMaterialBalances as any[]) {
+      const materialId = balance.part.materialId;
+      if (materialId) availableByMaterial.set(materialId, (availableByMaterial.get(materialId) || 0) + Number(balance.weightKgAvailable));
+    }
+    let totalMaterialShortageKg = 0;
+    for (const [materialId, requiredKg] of demandByMaterial) {
+      totalMaterialShortageKg += Math.max(0, requiredKg - (availableByMaterial.get(materialId) || 0));
+    }
+
+    const totalWipQuantityPieces = wipRows.reduce((sum: number, row: any) => sum + row.totalActiveWipQty, 0);
+    const stagnantWipItemsCount = wipRows.filter((row: any) =>
+      row.totalActiveWipQty > 0 && now.getTime() - new Date(row.lastActivityAt).getTime() >= 72 * 60 * 60 * 1000
+    ).length;
+    const totalFinishedGoodsStockPieces = finishedGoodsBalances.reduce((sum: number, balance: any) =>
+      sum + (balance.part.unit.code === 'PCS' ? Number(balance.quantityAvailable) : 0), 0);
+
+    const delayedOrderIds = new Set<string>();
+    for (const order of customerOrders as any[]) {
+      if (order.orderLines.some((line: any) =>
+        Number(line.orderedQty) > Number(line.deliveredQty) &&
+        line.requestedDate.getTime() < now.getTime()
+      )) delayedOrderIds.add(order.id);
+    }
+    const delayedManufacturingOrdersCount = activeManufacturingOrders.filter((order: any) =>
+      Number(order.targetQty) > Number(order.completedQty) && order.scheduledEndDate.getTime() < now.getTime()
+    ).length;
+
+    const summary = {
+      activeCustomerOrdersCount: activeOrders.length,
+      totalGrossDemandPieces,
+      totalPlannedProductionPieces,
+      totalActualProducedPieces,
+      overallPlanAchievementRatePercent: totalPlannedProductionPieces > 0
+        ? Math.round((totalActualProducedPieces / totalPlannedProductionPieces) * 1000) / 10
+        : 0,
+      totalDelayedOrdersCount: delayedOrderIds.size + delayedManufacturingOrdersCount,
+      totalMaterialShortageKg: Math.round(totalMaterialShortageKg * 1000) / 1000,
+      totalWipQuantityPieces,
+      totalFinishedGoodsStockPieces,
+      totalScrapPieces,
+      totalScrapWeightKg,
+      // No utilization percentage is asserted until a real working-time calendar is available.
+      averageMachineUtilizationPercent: 0,
+      reliableMachinesCount: 0,
+      activeManufacturingOrdersCount: activeManufacturingOrders.length,
+      stagnantWipItemsCount,
+      lastUpdatedTimestamp: now.toISOString(),
+    };
+
+    res.json({
+      success: true,
+      source: 'POSTGRESQL_CUSTOMER_ORDERS_PRODUCTION_PLANS_MANUFACTURING_ORDERS_REPORTS_STOCK_BALANCES_AND_WIP_TRANSFERS',
+      meta: {
+        generatedAt: now.toISOString(),
+        appliedFilters: filters,
+        notes: [
+          'تولید واقعی و ضایعات فقط از گزارش‌های تولید قطعی و ثبت‌شده محاسبه می‌شود.',
+          'کمبود مواد بر اساس وزن ناخالص سفارش‌های ساخت باز و موجودی آزاد مواد هم‌گرید برآورد می‌شود.',
+          'درصد بهره‌برداری ماشین‌آلات تا زمان ثبت تقویم واقعی ظرفیت، صفر و تعداد ماشین قابل اتکا صفر گزارش می‌شود.',
+        ],
+      },
+      data: summary,
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در بارگذاری خلاصه مدیریتی' });
   }
