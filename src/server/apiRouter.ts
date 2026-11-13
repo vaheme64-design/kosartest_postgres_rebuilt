@@ -7883,7 +7883,10 @@ apiRouter.get('/reports/dashboard-summary', async (req: Request, res: Response) 
         select: {
           id: true,
           orderLines: {
-            where: filters.partId ? { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } : undefined,
+            where: {
+              ...(filters.partId ? { OR: [{ partId: filters.partId }, { part: { is: { partNumber: filters.partId } } }] } : {}),
+              ...(dateWhere ? { requestedDate: dateWhere } : {}),
+            },
             select: { orderedQty: true, deliveredQty: true, requestedDate: true },
           },
         },
