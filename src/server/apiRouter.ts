@@ -6438,6 +6438,15 @@ apiRouter.post('/inventory/import/create-missing-master-data', async (req: Reque
         };
         if (index >= 0) partsStore[index] = mapped;
         else partsStore.push(mapped);
+        // Opening-balance rows may have been assembled earlier in this wizard request.
+        // Keep their item foreign keys aligned with the canonical PostgreSQL Part ID.
+        for (const document of inventoryDocsStore) {
+          for (const line of document.lines) {
+            if (line.partCode.toLowerCase() === dbPart.partNumber.toLowerCase()) {
+              line.partId = dbPart.id;
+            }
+          }
+        }
       }
     }
 
