@@ -3874,10 +3874,73 @@ apiRouter.post('/inventory/coils', async (req: Request, res: Response) => {
       for (const allocation of (newCoil.allocations || [])) {
         const allocatedWeightKg = Number(allocation.allocatedWeightKg);
         if (!Number.isFinite(allocatedWeightKg) || allocatedWeightKg <= 0) throw new Error('وزن تخصیص قرارداد باید عددی مثبت باشد.');
-        const contract = await tx.materialContract.findFirst({
-          where: { OR: [{ id: allocation.contractId }, { contractNumber: allocation.contractNumber || allocation.contractId }] },
+        const requestedContractNumber = String(allocation.contractNumber || allocation.contractId || '').trim();
+        let contract = await tx.materialContract.findFirst({
+          where: { OR: [{ id: allocation.contractId }, { contractNumber: requestedContractNumber }] },
         });
-        if (!contract) throw new Error(`قرارداد ${allocation.contractNumber || allocation.contractId} در PostgreSQL یافت نشد؛ ثبت کلاف لغو شد.`);
+
+        // Contracts entered through the inventory contract screen were previously saved
+        // in the durable application snapshot only. Promote that exact user-entered
+        // contract into normalized PostgreSQL data when it is first used for a coil receipt.
+        if (!contract) {
+          const appContract = contractsStore.find(item =>
+            item.id === allocation.contractId ||
+            item.contractNumber.trim().toLowerCase() === requestedContractNumber.toLowerCase()
+          );
+          if (appContract) {
+            const contractGrade = String(appContract.materialGrade || grade).trim().toUpperCase();
+            let contractMaterial = await tx.material.findFirst({
+              where: { OR: [{ grade: { equals: contractGrade, mode: 'insensitive' } }, { code: `MAT-${contractGrade}` }] },
+            });
+            if (!contractMaterial) {
+              const definition = materialGradesStore.find(item => item.code.toUpperCase() === contractGrade);
+              if (!definition) throw new Error(`گرید ${contractGrade} قرارداد در اطلاعات پایه مواد تعریف نشده است.`);
+              contractMaterial = await tx.material.create({
+                data: {
+                  code: `MAT-${contractGrade}`,
+                  name: definition.name,
+                  grade: contractGrade,
+                  standard: definition.standard,
+                  yieldStrengthMpa: definition.yieldStrengthMpa,
+                  densityKgM3: 7850,
+                  active: true,
+                },
+              });
+            }
+
+            const customerName = String(appContract.customerName || 'شرکت ساپکو').trim();
+            let customer = await tx.customer.findFirst({ where: { name: customerName } });
+            if (!customer) {
+              customer = await tx.customer.create({
+                data: {
+                  code: `CUST-INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+                  name: customerName,
+                  active: true,
+                },
+              });
+            }
+
+            const validStatuses = ['DRAFT', 'ACTIVE', 'FULFILLED', 'EXPIRED', 'TERMINATED'];
+            const contractStatus = validStatuses.includes(String(appContract.status).toUpperCase())
+              ? String(appContract.status).toUpperCase()
+              : 'ACTIVE';
+            contract = await tx.materialContract.create({
+              data: {
+                contractNumber: appContract.contractNumber.trim(),
+                supplierCustomerId: customer.id,
+                title: appContract.title || appContract.contractNumber,
+                materialId: contractMaterial.id,
+                totalAllocatedWeightKg: Number(appContract.allocatedWeightKg) || 0,
+                receivedWeightKg: Number(appContract.totalReceivedKg) || 0,
+                startDate: appContract.startDate ? new Date(appContract.startDate) : new Date(),
+                endDate: appContract.endDate ? new Date(appContract.endDate) : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+                status: contractStatus,
+                notes: appContract.notes || null,
+              },
+            });
+          }
+        }
+        if (!contract) throw new Error(`قرارداد ${requestedContractNumber} در اطلاعات قراردادهای ثبت‌شده برنامه یا PostgreSQL یافت نشد؛ ثبت کلاف لغو شد.`);
         const alreadyReceived = Number(contract.receivedWeightKg || 0);
         if (alreadyReceived + allocatedWeightKg > Number(contract.totalAllocatedWeightKg)) {
           throw new Error(`وزن دریافتی قرارداد ${contract.contractNumber} از سقف تناژ قرارداد بیشتر می‌شود.`);
