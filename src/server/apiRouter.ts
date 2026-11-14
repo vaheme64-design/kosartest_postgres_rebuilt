@@ -3790,10 +3790,33 @@ apiRouter.post('/inventory/coils', async (req: Request, res: Response) => {
     const prisma = getPrismaClient();
     const receiptDocumentNumber = `RCV-CL-${Date.now()}`;
     const dbCoil = await prisma.$transaction(async (tx: any) => {
-      const dbWarehouse = await tx.warehouse.findFirst({
-        where: { OR: [{ id: payload.warehouseId }, { code: warehouse?.code || payload.warehouseId }] },
+      // Resolve the selected warehouse from the canonical application master data.
+      // The generic receipt path provisions warehouses on demand; coil receipts must
+      // do the same because this endpoint is the sole posting path for sheet-metal rolls.
+      const canonicalWarehouseMaster = WAREHOUSES_LIST.find(item =>
+        item.id === payload.warehouseId ||
+        item.code === payload.warehouseId ||
+        item.code === warehouse?.code
+      );
+      if (!canonicalWarehouseMaster) {
+        throw new Error(`انبار انتخاب‌شده «${payload.warehouseId}» در ساختار استاندارد انبارهای سیستم تعریف نشده است.`);
+      }
+      const dbWarehouse = await tx.warehouse.upsert({
+        where: { code: canonicalWarehouseMaster.code },
+        update: {
+          name: canonicalWarehouseMaster.name,
+          type: canonicalWarehouseMaster.type === 'TOOLING' ? 'TOOLING_DIES' : canonicalWarehouseMaster.type,
+          managerName: canonicalWarehouseMaster.managerName,
+          active: true,
+        },
+        create: {
+          code: canonicalWarehouseMaster.code,
+          name: canonicalWarehouseMaster.name,
+          type: canonicalWarehouseMaster.type === 'TOOLING' ? 'TOOLING_DIES' : canonicalWarehouseMaster.type,
+          managerName: canonicalWarehouseMaster.managerName,
+          active: true,
+        },
       });
-      if (!dbWarehouse) throw new Error('انبار انتخاب‌شده در اطلاعات پایه PostgreSQL یافت نشد.');
       const dbPart = await tx.part.findFirst({
         where: { OR: [{ id: payload.partId }, { partNumber: part?.code || payload.partCode || payload.partId }] },
         include: { unit: { select: { code: true } } },
