@@ -930,7 +930,12 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
       {/* Modals */}
       <ReceiptFormModal
         isOpen={isReceiptOpen}
-        onClose={() => setIsReceiptOpen(false)}
+        onClose={() => {
+          setIsReceiptOpen(false);
+          // Sheet-metal coil receipts use their own PostgreSQL posting endpoint;
+          // refresh the inventory views after the modal closes so the posted ledger is visible.
+          void loadInventoryData();
+        }}
         parts={parts}
         warehouses={warehouses}
         contracts={contracts}
