@@ -149,6 +149,16 @@ export const ReceiptFormModal: React.FC<ReceiptFormModalProps> = ({
   const [contractAllocations, setContractAllocations] = useState<
     Array<{ contractId: string; allocatedWeightKg: string }>
   >([]);
+  const [contractSearch, setContractSearch] = useState<string>('');
+
+  const filteredContracts = useMemo(() => {
+    const query = contractSearch.trim().toLocaleLowerCase();
+    if (!query) return localContracts;
+    return localContracts.filter(contract =>
+      [contract.contractNumber, contract.title, contract.customerName, contract.materialGrade]
+        .some(value => String(value || '').toLocaleLowerCase().includes(query))
+    );
+  }, [localContracts, contractSearch]);
 
   const [loading, setLoading] = useState<boolean>(false);
   const [submittingQuick, setSubmittingQuick] = useState<boolean>(false);
@@ -469,150 +479,124 @@ export const ReceiptFormModal: React.FC<ReceiptFormModalProps> = ({
   const handleFinalSubmit = async (autoPost: boolean) => {
     setErrorMessage(null);
     setLoading(true);
+    try {
+      if (isSheetMetal) {
+        const coils = coilEntryMode === 'MULTI'
+          ? batchCoils.map(coil => ({
+              coilId: coil.physicalCoilCode.trim() || `COIL-${coil.id}`,
+              coilPackNumber: coil.coilPackNumber.trim(),
+              heatNumber: coil.heatNumber.trim() || undefined,
+              weightKg: Number(coil.weightKg),
+            }))
+          : [{
+              coilId: physicalCoilCode.trim() || `COIL-${Date.now()}`,
+              coilPackNumber: coilPackNumber.trim(),
+              heatNumber: heatNumber.trim() || undefined,
+              weightKg: calculatedWeightKg,
+            }];
 
-    const primaryContractId =
-      contractAllocations.length > 0 ? contractAllocations[0].contractId : localContracts[0]?.id;
-    const primaryContract = localContracts.find(c => c.id === primaryContractId);
-
-    // Build document lines
-    let docLines: any[] = [];
-    if (isSheetMetal && coilEntryMode === 'MULTI') {
-      docLines = batchCoils.map(b => ({
-        partId: selectedPartId,
-        partCode: selectedPart?.code,
-        partName: selectedPart?.name,
-        lotNumber: b.coilPackNumber.trim() || b.physicalCoilCode.trim(),
-        heatNumber: b.heatNumber.trim() || undefined,
-        ownership,
-        contractId: primaryContract?.id,
-        contractNumber: primaryContract?.contractNumber,
-        locationCode,
-        quantity: Number(b.weightKg),
-        unit: 'KG',
-        qualityStatus,
-        notes: notes.trim() || `ورود کلاف محموله دسته‌ای ${b.physicalCoilCode}`,
-      }));
-    } else {
-      const effectiveLot = coilPackNumber.trim() || physicalCoilCode.trim() || undefined;
-      docLines = [
-        {
-          partId: selectedPartId,
-          partCode: selectedPart?.code,
-          partName: selectedPart?.name,
-          lotNumber: effectiveLot,
-          heatNumber: heatNumber.trim() || undefined,
-          ownership,
-          contractId: primaryContract?.id,
-          contractNumber: primaryContract?.contractNumber,
-          locationCode,
-          quantity: enteredQty,
-          unit: selectedPart?.unit || 'KG',
-          qualityStatus,
-          notes: notes.trim() || undefined,
-        },
-      ];
-    }
-
-    const payload = {
-      documentType: docType,
-      warehouseId,
-      ownership,
-      referenceType:
-        receiptSubType === 'SAPCO_MATERIAL'
-          ? 'SAPCO_WAYBILL'
-          : receiptSubType === 'FINISHED_PRODUCT'
-          ? 'PRODUCTION_REPORT'
-          : 'SUPPLIER_WAYBILL',
-      referenceNumber: referenceNumber.trim() || undefined,
-      autoPost,
-      lines: docLines,
-    };
-
-    const res = await onSubmit(payload);
-
-    // Register physical coils into /api/inventory/coils
-    if (res.success && isSheetMetal) {
-      try {
-        const validAllocations = contractAllocations
-          .filter(a => Number(a.allocatedWeightKg) > 0)
-          .map(a => {
-            const cnt = localContracts.find(c => c.id === a.contractId);
-            return {
-              contractId: a.contractId,
-              contractNumber: cnt?.contractNumber || a.contractId,
-              allocatedWeightKg: Number(a.allocatedWeightKg),
-            };
-          });
-
-        if (coilEntryMode === 'MULTI') {
-          // Register each coil in the batch
-          for (const b of batchCoils) {
-            const w = Number(b.weightKg);
-            await fetch('/api/inventory/coils', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                coilId: b.physicalCoilCode.trim() || `COIL-${Date.now().toString().slice(-5)}`,
-                coilPackNumber: b.coilPackNumber.trim(),
-                partId: selectedPart?.id,
-                partCode: selectedPart?.code,
-                partName: selectedPart?.name,
-                materialGrade: selectedPart?.materialGrade || 'DC04',
-                thicknessMm: selectedPart?.thicknessMm || 0.8,
-                widthMm: (selectedPart as any)?.widthMm || 1250,
-                originalWeightKg: w,
-                remainingWeightKg: w,
-                ownership,
-                warehouseId,
-                warehouseLocationCode: locationCode,
-                heatNumber: b.heatNumber.trim() || undefined,
-                allocations: validAllocations,
-              }),
-            });
+        // Allocate each contract weight across the incoming coils only once.
+        const remainingByContract = contractAllocations
+          .filter(allocation => Number(allocation.allocatedWeightKg) > 0)
+          .map(allocation => ({ contractId: allocation.contractId, remainingKg: Number(allocation.allocatedWeightKg) }));
+        const coilPayloads = coils.map(coil => {
+          let capacity = coil.weightKg;
+          const allocations: Array<{ contractId: string; contractNumber: string; allocatedWeightKg: number }> = [];
+          for (const allocation of remainingByContract) {
+            if (capacity <= 0) break;
+            const assignedKg = Math.min(capacity, allocation.remainingKg);
+            if (assignedKg > 0) {
+              const contract = localContracts.find(item => item.id === allocation.contractId);
+              allocations.push({
+                contractId: allocation.contractId,
+                contractNumber: contract?.contractNumber || allocation.contractId,
+                allocatedWeightKg: Number(assignedKg.toFixed(3)),
+              });
+              allocation.remainingKg = Number((allocation.remainingKg - assignedKg).toFixed(3));
+              capacity = Number((capacity - assignedKg).toFixed(3));
+            }
           }
-        } else if (coilPackNumber.trim()) {
-          // Register single coil
-          await fetch('/api/inventory/coils', {
+          return { ...coil, allocations };
+        });
+
+        for (const coil of coilPayloads) {
+          const response = await fetch('/api/inventory/coils', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              coilId: physicalCoilCode.trim() || `COIL-${Date.now().toString().slice(-5)}`,
-              coilPackNumber: coilPackNumber.trim(),
+              coilId: coil.coilId,
+              coilPackNumber: coil.coilPackNumber,
               partId: selectedPart?.id,
               partCode: selectedPart?.code,
               partName: selectedPart?.name,
               materialGrade: selectedPart?.materialGrade || 'DC04',
               thicknessMm: selectedPart?.thicknessMm || 0.8,
               widthMm: (selectedPart as any)?.widthMm || 1250,
-              originalWeightKg: calculatedWeightKg,
-              remainingWeightKg: calculatedWeightKg,
+              originalWeightKg: coil.weightKg,
+              remainingWeightKg: coil.weightKg,
               ownership,
+              qualityStatus,
               warehouseId,
               warehouseLocationCode: locationCode,
-              heatNumber: heatNumber.trim() || undefined,
-              allocations: validAllocations,
+              heatNumber: coil.heatNumber,
+              receiptDate: new Date().toISOString(),
+              waybillNumber: referenceNumber.trim() || undefined,
+              referenceNumber: referenceNumber.trim() || undefined,
+              notes: notes.trim() || undefined,
+              allocations: coil.allocations,
             }),
           });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || `ثبت کلاف «${coil.coilId}» ناموفق بود.`);
+          }
         }
-      } catch (err) {
-        console.warn('Coil registration sync note:', err);
+      } else {
+        const primaryContract = localContracts.find(c => c.id === contractAllocations[0]?.contractId);
+        const payload = {
+          documentType: docType,
+          warehouseId,
+          ownership,
+          referenceType:
+            receiptSubType === 'SAPCO_MATERIAL'
+              ? 'SAPCO_WAYBILL'
+              : receiptSubType === 'FINISHED_PRODUCT'
+              ? 'PRODUCTION_REPORT'
+              : 'SUPPLIER_WAYBILL',
+          referenceNumber: referenceNumber.trim() || undefined,
+          autoPost,
+          lines: [{
+            partId: selectedPartId,
+            partCode: selectedPart?.code,
+            partName: selectedPart?.name,
+            lotNumber: coilPackNumber.trim() || undefined,
+            heatNumber: heatNumber.trim() || undefined,
+            ownership,
+            contractId: primaryContract?.id,
+            contractNumber: primaryContract?.contractNumber,
+            locationCode,
+            quantity: enteredQty,
+            unit: selectedPart?.unit || 'KG',
+            qualityStatus,
+            notes: notes.trim() || undefined,
+          }],
+        };
+        const result = await onSubmit(payload);
+        if (!result.success) throw new Error(result.error || 'خطا در ثبت سند رسید کالا');
       }
-    }
-
-    setLoading(false);
-
-    if (res.success) {
       setStep(1);
       setQuantity('');
       setCoilPackNumber('');
       setPhysicalCoilCode('');
       setHeatNumber('');
+      setContractAllocations([]);
       onClose();
-    } else {
-      setErrorMessage(res.error || 'خطا در ثبت سند رسید کالا');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'خطا در ثبت رسید کالا');
+    } finally {
+      setLoading(false);
     }
   };
-
   const receiptTypes: Array<{ id: GuidedReceiptSubType; title: string; subtitle: string }> = [
     {
       id: 'SAPCO_MATERIAL',
@@ -1129,6 +1113,16 @@ export const ReceiptFormModal: React.FC<ReceiptFormModalProps> = ({
                       </div>
                     </div>
 
+                    {localContracts.length > 0 && (
+                      <input
+                        type="search"
+                        value={contractSearch}
+                        onChange={e => setContractSearch(e.target.value)}
+                        placeholder="جستجوی شماره قرارداد، عنوان، مشتری یا گرید ماده..."
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-xs"
+                      />
+                    )}
+
                     {localContracts.length === 0 ? (
                       <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-amber-900 text-xs">
                         <span>هنوز هیچ قراردادی در سیستم تعریف نشده است. جهت ثبت سهمیه، دکمه «+ تعریف سریع قرارداد جدید» را بزنید.</span>
@@ -1153,11 +1147,13 @@ export const ReceiptFormModal: React.FC<ReceiptFormModalProps> = ({
                               }}
                               className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-900"
                             >
-                              {localContracts.map(c => (
-                                <option key={c.id} value={c.id}>
-                                  {c.contractNumber} — {c.title || c.customerName} ({c.materialGrade || 'DC04'})
-                                </option>
-                              ))}
+                              {localContracts
+                                .filter(c => c.id === row.contractId || filteredContracts.some(filtered => filtered.id === c.id))
+                                .map(c => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.contractNumber} — {c.title || c.customerName} ({c.materialGrade || 'DC04'})
+                                  </option>
+                                ))}
                             </select>
                           </div>
                           <div className="sm:col-span-4 flex items-center gap-1.5">
