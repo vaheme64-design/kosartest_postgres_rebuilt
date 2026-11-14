@@ -1485,15 +1485,32 @@ export async function postDocumentInDbTransaction(
         });
       }
 
-      const resolveLocation = async (code: string | undefined, warehouseId: string) => {
+      const resolveLocation = async (
+        code: string | undefined,
+        warehouseId: string,
+        warehouseCode: string
+      ) => {
         if (!code) return null;
-        const location = await tx.warehouseLocation.findFirst({
+
+        const existingLocation = await tx.warehouseLocation.findFirst({
           where: { code, warehouseId, active: true },
         });
-        if (!location) {
+        if (existingLocation) return existingLocation;
+
+        // Only create locations that are explicitly part of the application's
+        // canonical warehouse layout. This avoids silently accepting arbitrary codes.
+        const canonicalWarehouse = WAREHOUSES_LIST.find(
+          item => item.code === warehouseCode
+        );
+        if (!canonicalWarehouse?.locations.includes(code)) {
           throw new Error(`موقعیت انبار «${code}» در انبار انتخاب‌شده تعریف نشده است.`);
         }
-        return location;
+
+        return tx.warehouseLocation.upsert({
+          where: { warehouseId_code: { warehouseId, code } },
+          update: { active: true },
+          create: { warehouseId, code },
+        });
       };
 
       const createMovement = async (args: {
@@ -1647,7 +1664,7 @@ export async function postDocumentInDbTransaction(
           throw new Error(`واحد «${line.unit}» برای کالا «${line.partCode}» در دیتابیس تعریف نشده است.`);
         }
 
-        const location = await resolveLocation(line.locationCode, warehouse.id);
+        const location = await resolveLocation(line.locationCode, warehouse.id, warehouse.code);
         const lot = line.materialLotId
           ? await tx.materialLot.findFirst({
               where: { OR: [{ id: line.materialLotId }, { lotNumber: line.materialLotId }] },
@@ -1670,7 +1687,7 @@ export async function postDocumentInDbTransaction(
             materialLotId: lot?.id,
             locationId: location?.id,
             targetLocationId: document.documentType === 'TRANSFER'
-              ? (await resolveLocation(line.targetLocationCode, targetWarehouse!.id))?.id
+              ? (await resolveLocation(line.targetLocationCode, targetWarehouse!.id, targetWarehouse!.code))?.id
               : null,
             quantity: Math.abs(Number(line.quantity)),
             unitId: unit.id,
@@ -1698,7 +1715,7 @@ export async function postDocumentInDbTransaction(
             warehouseId: warehouse.id, locationId: location?.id || null,
             signedQuantity: -absQty, signedWeightKg: -absKg, suffix: 'OUT', movementType: 'TRANSFER_OUT',
           });
-          const targetLocation = await resolveLocation(line.targetLocationCode, targetWarehouse.id);
+          const targetLocation = await resolveLocation(line.targetLocationCode, targetWarehouse.id, targetWarehouse.code);
           await createMovement({
             line, lineId: dbLine.id, partId: part.id, unitId: unit.id,
             warehouseId: targetWarehouse.id, locationId: targetLocation?.id || null,
