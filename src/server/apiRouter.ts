@@ -171,6 +171,7 @@ import { MrpService } from './services/MrpService';
 import { WipService } from './services/WipService';
 import { CapacityPlanningService } from './services/CapacityPlanningService';
 import { runErpIntegrationTest } from './runErpIntegrationTest';
+import { syncImportedPartMasterRows } from './importMasterData';
 
 // Server-side State Store (in production can be wired to PostgreSQL / Prisma / SQL Server / ERP)
 let partsStore: Part[] = [...INITIAL_PARTS];
@@ -6278,7 +6279,7 @@ apiRouter.post('/inventory/customers', (req: Request, res: Response) => {
   res.status(201).json({ success: true, message: `مشتری «${custName}» با موفقیت ثبت شد.`, data: newCust });
 });
 
-apiRouter.post('/inventory/import/create-missing-master-data', (req: Request, res: Response) => {
+apiRouter.post('/inventory/import/create-missing-master-data', async (req: Request, res: Response) => {
   try {
     const { units = [], categories = [], parts = [], warehouses = [], customers = [] } = req.body;
     let addedCount = 0;
@@ -6413,6 +6414,30 @@ apiRouter.post('/inventory/import/create-missing-master-data', (req: Request, re
           displayName: 'ورود خودکار اکسل',
         });
         postedOpeningDocsCount++;
+      }
+    }
+
+    // Ensure items added by the import wizard also exist in the relational master catalog.
+    if (Array.isArray(parts) && parts.length > 0) {
+      const persisted = await syncImportedPartMasterRows(getPrismaClient(), parts);
+      for (const dbPart of persisted) {
+        const index = partsStore.findIndex(existing => existing.code.toLowerCase() === dbPart.partNumber.toLowerCase());
+        const template = partsStore[index];
+        const mapped: Part = {
+          id: dbPart.id,
+          code: dbPart.partNumber,
+          name: dbPart.name,
+          category: dbPart.category as Part['category'],
+          unit: dbPart.unit.code as Part['unit'],
+          weightPerUnitKg: Number(dbPart.weightNetKg),
+          materialGrade: dbPart.material?.grade || undefined,
+          thicknessMm: dbPart.thicknessMm == null ? undefined : Number(dbPart.thicknessMm),
+          isDemo: false,
+          createdAt: template?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        if (index >= 0) partsStore[index] = mapped;
+        else partsStore.push(mapped);
       }
     }
 
@@ -6559,7 +6584,7 @@ apiRouter.post('/inventory/import/validate', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/inventory/import/confirm', (req: Request, res: Response) => {
+apiRouter.post('/inventory/import/confirm', async (req: Request, res: Response) => {
   try {
     const idempotencyKey = req.body.idempotencyKey || req.body.batchId || `BATCH-${Date.now()}`;
     const { batchType, user } = req.body;
@@ -6593,9 +6618,13 @@ apiRouter.post('/inventory/import/confirm', (req: Request, res: Response) => {
       });
     }
 
-    // Import valid rows into corresponding stores
+    // Import valid rows into corresponding stores. Item master rows are committed to PostgreSQL first.
     let importedCount = 0;
     const bTypeUpper = (batchType || '').toUpperCase();
+    const persistedParts = (bTypeUpper === 'PARTS' || bTypeUpper === 'ITEMS' || bTypeUpper === 'ITEM_MASTER')
+      ? await syncImportedPartMasterRows(getPrismaClient(), validRowsToImport)
+      : [];
+    const persistedPartsByCode = new Map(persistedParts.map(part => [part.partNumber.toLowerCase(), part]));
 
     if (bTypeUpper === 'PARTS' || bTypeUpper === 'ITEMS' || bTypeUpper === 'ITEM_MASTER') {
       for (const row of validRowsToImport) {
@@ -6608,14 +6637,14 @@ apiRouter.post('/inventory/import/confirm', (req: Request, res: Response) => {
         const existingIdx = partsStore.findIndex(p => p.code.toLowerCase() === code.toLowerCase());
 
         const newPart: Part = {
-          id: row.id || `PRT-IMP-${Date.now()}-${importedCount}`,
+          id: persistedPartsByCode.get(code.toLowerCase())?.id || row.id || `PRT-IMP-${Date.now()}-${importedCount}`,
           code,
           name,
-          category: category as any,
-          unit,
+          category: (persistedPartsByCode.get(code.toLowerCase())?.category || category) as any,
+          unit: persistedPartsByCode.get(code.toLowerCase())?.unit.code || unit,
           weightPerUnitKg: Number(row.weightPerUnitKg || row['وزن واحد (kg)']) || 1,
-          materialGrade: String(row.materialGrade || row['گرید متریال'] || '').trim(),
-          thicknessMm: row.thicknessMm ? Number(row.thicknessMm) : undefined,
+          materialGrade: persistedPartsByCode.get(code.toLowerCase())?.material?.grade || String(row.materialGrade || row['گرید متریال'] || '').trim(),
+          thicknessMm: persistedPartsByCode.get(code.toLowerCase())?.thicknessMm == null ? (row.thicknessMm ? Number(row.thicknessMm) : undefined) : Number(persistedPartsByCode.get(code.toLowerCase())?.thicknessMm),
           isDemo: false,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
