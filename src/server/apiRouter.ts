@@ -720,6 +720,41 @@ async function executePersistentWipMutation<T extends { success: boolean }>(muta
 
 export const apiRouter = Router();
 
+/**
+ * Technical posting identity used only when no active database user exists.
+ * This is an explicit service actor, not a fabricated employee account.
+ */
+async function ensureInventoryPostingUser(tx: any) {
+  const activeUser = await tx.user.findFirst({
+    where: { active: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (activeUser) return activeUser;
+
+  const role = await tx.role.upsert({
+    where: { name: 'SYSTEM_SERVICE' },
+    update: { displayName: 'کاربر سیستمی ثبت اسناد انبار', active: true },
+    create: {
+      name: 'SYSTEM_SERVICE',
+      displayName: 'کاربر سیستمی ثبت اسناد انبار',
+      description: 'هویت فنی برای ثبت خودکار اسناد رسمی انبار در نبود کاربر فعال',
+      active: true,
+    },
+  });
+
+  return tx.user.upsert({
+    where: { username: 'system.inventory.posting' },
+    update: { fullName: 'کاربر سیستمی ثبت اسناد انبار', roleId: role.id, active: true },
+    create: {
+      username: 'system.inventory.posting',
+      email: 'system.inventory.posting@kpims.local',
+      fullName: 'کاربر سیستمی ثبت اسناد انبار',
+      roleId: role.id,
+      active: true,
+    },
+  });
+}
+
 function syncErpRuntimeStores() {
   if (INITIAL_PARTS !== partsStore) {
     INITIAL_PARTS.splice(0, INITIAL_PARTS.length, ...partsStore);
@@ -3990,8 +4025,7 @@ apiRouter.post('/inventory/coils', async (req: Request, res: Response) => {
         },
       });
 
-      const user = await tx.user.findFirst({ where: { active: true }, orderBy: { createdAt: 'asc' } });
-      if (!user) throw new Error('برای ثبت سند رسمی انبار، حداقل یک کاربر فعال در PostgreSQL لازم است.');
+      const user = await ensureInventoryPostingUser(tx);
       const receiptDoc = await tx.inventoryDocument.create({
         data: {
           documentNumber: receiptDocumentNumber,
@@ -4317,8 +4351,7 @@ apiRouter.post('/inventory/coils/:id/issue', async (req: Request, res: Response)
       }
       const dbPart = await tx.part.findUnique({ where: { id: dbCoil.partId } });
       if (!dbPart) throw new Error('کالای پایه کلاف در PostgreSQL یافت نشد.');
-      const user = await tx.user.findFirst({ where: { active: true }, orderBy: { createdAt: 'asc' } });
-      if (!user) throw new Error('برای صدور سند رسمی حواله، حداقل یک کاربر فعال در PostgreSQL لازم است.');
+      const user = await ensureInventoryPostingUser(tx);
 
       const docNumber = `ISS-COIL-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       const doc = await tx.inventoryDocument.create({
@@ -4817,8 +4850,7 @@ apiRouter.post('/inventory/coils/:id/return', async (req: Request, res: Response
       if (targetLocationCode && !targetLocation) throw new Error('موقعیت مقصد برگشت در انبار انتخاب‌شده یافت نشد.');
       if (targetWarehouse.id !== dbCoil.warehouseId && !targetLocation) throw new Error('برای برگشت به انبار دیگر، تعیین موقعیت مقصد الزامی است.');
 
-      const user = await tx.user.findFirst({ where: { active: true }, orderBy: { createdAt: 'asc' } });
-      if (!user) throw new Error('برای ثبت سند رسمی برگشت، حداقل یک کاربر فعال در PostgreSQL لازم است.');
+      const user = await ensureInventoryPostingUser(tx);
       const docNumber = `RET-COIL-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       const doc = await tx.inventoryDocument.create({
         data: {
@@ -5069,8 +5101,7 @@ apiRouter.post('/inventory/coils/:id/allocate', async (req: Request, res: Respon
 
       const part = await tx.part.findUnique({ where: { id: dbCoil.partId } });
       if (!part) throw new Error('کالای پایه کلاف یافت نشد.');
-      const user = await tx.user.findFirst({ where: { active: true }, orderBy: { createdAt: 'asc' } });
-      if (!user) throw new Error('برای ثبت سند اصلاح تخصیص، حداقل یک کاربر فعال در PostgreSQL لازم است.');
+      const user = await ensureInventoryPostingUser(tx);
       const docNumber = `ADJ-COIL-ALLOC-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       const doc = await tx.inventoryDocument.create({
         data: {
