@@ -3800,15 +3800,29 @@ apiRouter.post('/inventory/coils', async (req: Request, res: Response) => {
       });
       if (!dbPart) throw new Error('قطعه یا ماده پایه کلاف در PostgreSQL یافت نشد.');
       if (dbPart.unit?.code !== 'KG') throw new Error('واحد پایه کالای کلاف باید KG باشد تا وزن و موجودی با یکدیگر مغایرت پیدا نکنند.');
+      const duplicateCoil = await tx.physicalCoil.findFirst({
+        where: { OR: [{ coilId: newCoil.coilId }, { coilPackNumber: newCoil.coilPackNumber }] },
+        select: { coilId: true, coilPackNumber: true },
+      });
+      if (duplicateCoil) {
+        throw new Error(`کلاف یا کویل‌پک تکراری است؛ شماره کویل «${duplicateCoil.coilId}» و کویل‌پک «${duplicateCoil.coilPackNumber}» قبلاً ثبت شده است.`);
+      }
       const grade = newCoil.materialGrade;
       const dbMaterial = dbPart.materialId
         ? await tx.material.findUnique({ where: { id: dbPart.materialId } })
         : await tx.material.findFirst({ where: { OR: [{ grade }, { code: `MAT-${grade}` }] } });
       if (!dbMaterial) throw new Error(`ماده با گرید ${grade} در اطلاعات پایه PostgreSQL یافت نشد.`);
-      const dbLocation = newCoil.warehouseLocationCode
-        ? await tx.warehouseLocation.findFirst({ where: { warehouseId: dbWarehouse.id, code: newCoil.warehouseLocationCode } })
-        : null;
-      if (!dbLocation) throw new Error('موقعیت انبار کلاف در اطلاعات پایه PostgreSQL یافت نشد.');
+      const canonicalWarehouse = WAREHOUSES_LIST.find(item =>
+        item.code === (warehouse?.code || payload.warehouseId) || item.code === dbWarehouse.code
+      );
+      if (!canonicalWarehouse?.locations.includes(newCoil.warehouseLocationCode)) {
+        throw new Error(`موقعیت انبار «${newCoil.warehouseLocationCode}» در انبار انتخاب‌شده تعریف نشده است.`);
+      }
+      const dbLocation = await tx.warehouseLocation.upsert({
+        where: { warehouseId_code: { warehouseId: dbWarehouse.id, code: newCoil.warehouseLocationCode } },
+        update: { active: true },
+        create: { warehouseId: dbWarehouse.id, code: newCoil.warehouseLocationCode },
+      });
 
       const allocations = [];
       let allocatedTotal = 0;
@@ -3879,11 +3893,11 @@ apiRouter.post('/inventory/coils', async (req: Request, res: Response) => {
           postingStatus: 'POSTED',
           warehouseId: dbWarehouse.id,
           referenceType: 'SAPCO_COIL',
-          referenceNumber: newCoil.coilPackNumber,
+          referenceNumber: payload.referenceNumber || payload.waybillNumber || newCoil.coilPackNumber,
           createdByUserId: user.id,
           postedByUserId: user.id,
           postedAt: new Date(),
-          notes: `رسید رسمی کلاف ${newCoil.coilId}؛ پکینگ ${newCoil.coilPackNumber}؛ ذوب ${newCoil.heatNumber || 'ثبت‌نشده'}`,
+          notes: [`رسید رسمی کلاف ${newCoil.coilId}؛ پکینگ ${newCoil.coilPackNumber}؛ ذوب ${newCoil.heatNumber || 'ثبت‌نشده'}`, payload.notes].filter(Boolean).join(' | '),
         },
       });
 
@@ -4033,7 +4047,7 @@ apiRouter.post('/inventory/coils', async (req: Request, res: Response) => {
           quantity: Number(newCoil.originalWeightKg) || 0,
           unit: 'KG',
           quantityKg: Number(newCoil.originalWeightKg) || 0,
-          qualityStatus: 'AVAILABLE',
+          qualityStatus: newCoil.qualityStatus,
           notes: `کویل‌پک: ${newCoil.coilPackNumber}`,
         },
       ],
