@@ -71,7 +71,7 @@ export async function syncImportedPartMasterRows(
       const unit = await tx.unitOfMeasure.upsert({
         where: { code: unitCode },
         create: { code: unitCode, name: unitName, symbol: unitCode.toLowerCase(), isBase: ['KG', 'PCS'].includes(unitCode) },
-        update: { name: unitName, active: true },
+        update: { active: true },
       });
 
       const grade = textValue(row, ['materialGrade', 'grade', 'گرید متریال', 'گرید'], '');
