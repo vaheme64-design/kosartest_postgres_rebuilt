@@ -104,6 +104,32 @@ async function main() {
     coilId = receipt.payload.data.id;
     console.log('PASS: HTTP POST receipt persists a physical coil and inventory receipt.');
 
+    // Simulate the app's post-receipt refresh/reload, then verify the same PostgreSQL
+    // receipt is exposed exactly once and contributes exactly once to displayed stock.
+    await loadInventoryAppState();
+    const [receiptDocuments, receiptStock] = await Promise.all([
+      requestJson(baseUrl, `/api/inventory/documents?search=${encodeURIComponent(`${nonce}-COIL`)}`),
+      requestJson(baseUrl, `/api/inventory/stock-inquiry?search=${encodeURIComponent(`${nonce}-COIL`)}`),
+    ]);
+    assert(
+      receiptDocuments.response.status === 200 &&
+        receiptDocuments.payload.success === true &&
+        receiptDocuments.payload.data.filter((doc: any) =>
+          doc.lines?.some((line: any) => line.lotNumber === `${nonce}-COIL`)
+        ).length === 1,
+      'A PostgreSQL coil receipt must appear as exactly one inventory document after app-state reload.'
+    );
+    const receiptStockRows = receiptStock.payload.data?.filter((row: any) => row.lotNumber === `${nonce}-COIL`) || [];
+    const displayedReceiptKg = receiptStockRows.reduce((sum: number, row: any) => sum + Number(row.physicalKg || 0), 0);
+    assert(
+      receiptStock.response.status === 200 &&
+        receiptStock.payload.success === true &&
+        receiptStockRows.length === 1 &&
+        displayedReceiptKg === 100,
+      `A 100 kg coil receipt must appear exactly once in stock inquiry; got ${receiptStockRows.length} rows / ${displayedReceiptKg} kg.`
+    );
+    console.log('PASS: Receipt appears once in documents and adds exactly 100 kg to stock inquiry after reload.');
+
     const invalidAllocation = await requestJson(baseUrl, `/api/inventory/coils/${coilId}/allocate`, 'POST', { allocations: [] });
     assert(invalidAllocation.response.status === 400, 'Allocation endpoint must reject an empty allocation list with HTTP 400.');
 
