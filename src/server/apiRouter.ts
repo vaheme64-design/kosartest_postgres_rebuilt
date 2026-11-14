@@ -3830,11 +3830,33 @@ apiRouter.post('/inventory/coils', async (req: Request, res: Response) => {
       if (duplicateCoil) {
         throw new Error(`کلاف یا کویل‌پک تکراری است؛ شماره کویل «${duplicateCoil.coilId}» و کویل‌پک «${duplicateCoil.coilPackNumber}» قبلاً ثبت شده است.`);
       }
-      const grade = newCoil.materialGrade;
-      const dbMaterial = dbPart.materialId
+      const grade = String(newCoil.materialGrade || '').trim().toUpperCase();
+      if (!grade) throw new Error('گرید ماده برای ثبت کلاف مشخص نشده است.');
+      let dbMaterial = dbPart.materialId
         ? await tx.material.findUnique({ where: { id: dbPart.materialId } })
-        : await tx.material.findFirst({ where: { OR: [{ grade }, { code: `MAT-${grade}` }] } });
-      if (!dbMaterial) throw new Error(`ماده با گرید ${grade} در اطلاعات پایه PostgreSQL یافت نشد.`);
+        : null;
+      if (!dbMaterial) {
+        dbMaterial = await tx.material.findFirst({
+          where: { OR: [{ grade: { equals: grade, mode: 'insensitive' } }, { code: `MAT-${grade}` }] },
+        });
+      }
+      if (!dbMaterial) {
+        const gradeDefinition = materialGradesStore.find(item => item.code.toUpperCase() === grade);
+        if (!gradeDefinition) {
+          throw new Error(`گرید ${grade} در فهرست گریدهای معتبر سیستم تعریف نشده است؛ ابتدا اطلاعات پایه گرید را تکمیل کنید.`);
+        }
+        dbMaterial = await tx.material.create({
+          data: {
+            code: `MAT-${grade}`,
+            name: gradeDefinition.name,
+            grade,
+            standard: gradeDefinition.standard,
+            yieldStrengthMpa: gradeDefinition.yieldStrengthMpa,
+            densityKgM3: 7850,
+            active: true,
+          },
+        });
+      }
       const canonicalWarehouse = WAREHOUSES_LIST.find(item =>
         item.code === (warehouse?.code || payload.warehouseId) || item.code === dbWarehouse.code
       );
