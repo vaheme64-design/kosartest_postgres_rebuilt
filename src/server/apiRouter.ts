@@ -2631,14 +2631,76 @@ apiRouter.post('/inventory/documents/:id/reverse', async (req: Request, res: Res
 /**
  * 16.8. Stock Inquiry by Part, Material, Warehouse, Location, Ownership & Status
  */
-apiRouter.get('/inventory/stock-inquiry', (req: Request, res: Response) => {
+apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) => {
   try {
+    if (!isDatabaseUrlConfigured()) {
+      return res.status(503).json({ success: false, error: 'برای استعلام موجودی معتبر، اتصال PostgreSQL الزامی است.' });
+    }
+
     const { partId, materialGrade, warehouseId, locationCode, ownership, search } = req.query;
+    const prisma = getPrismaClient();
 
-    const { balances } = calculateDetailedStockBalances(inventoryDocsStore, reservationsStore, partsStore);
+    // PostgreSQL StockBalance is the authoritative read model. Do not calculate
+    // operational stock from process-local document/reservation caches.
+    const dbBalances = await prisma.stockBalance.findMany({
+      include: {
+        part: { include: { material: true, unit: true } },
+        warehouse: true,
+        location: true,
+        materialLot: true,
+        physicalCoil: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+    });
 
-    let filtered = [...balances];
+    const balances: any[] = dbBalances.map((row: any) => {
+      const physicalQty = Number(row.quantityOnHand || 0);
+      const physicalKg = Number(row.weightKgOnHand || 0);
+      const reservedQty = Number(row.quantityReserved || 0);
+      const reservedKg = Number(row.weightKgReserved || 0);
+      const blocked = row.qualityStatus !== 'AVAILABLE';
+      const qualityBlockedQty = blocked ? physicalQty : 0;
+      const qualityBlockedKg = blocked ? physicalKg : 0;
+      const availableQty = blocked ? 0 : Math.max(0, Number(row.quantityAvailable ?? physicalQty - reservedQty));
+      const availableKg = blocked ? 0 : Math.max(0, Number(row.weightKgAvailable ?? physicalKg - reservedKg));
+      const ownershipValue = row.ownership || 'COMPANY_OWNED';
+      const lotNumber = row.materialLot?.lotNumber || row.physicalCoil?.coilId || undefined;
+      return {
+        id: row.id,
+        partId: row.partId,
+        partCode: row.part.partNumber,
+        partName: row.part.name,
+        category: row.part.category,
+        materialGrade: row.part.material?.grade,
+        thicknessMm: row.part.thicknessMm == null ? undefined : Number(row.part.thicknessMm),
+        warehouseId: row.warehouseId,
+        warehouseName: row.warehouse.name,
+        locationCode: row.location?.code || 'MAIN',
+        materialLotId: row.materialLotId || undefined,
+        lotNumber,
+        coilPackNumber: row.physicalCoil?.coilPackNumber,
+        heatNumber: row.materialLot?.heatNumber || row.physicalCoil?.heatNumber || undefined,
+        ownership: ownershipValue,
+        contractId: row.contractId || undefined,
+        contractNumber: row.contractNumber || undefined,
+        unit: row.part.unit.code,
+        physicalQty,
+        ownedQty: ownershipValue === 'COMPANY_OWNED' ? physicalQty : 0,
+        supplierOwnedQty: ownershipValue === 'COMPANY_OWNED' ? 0 : physicalQty,
+        reservedQty,
+        qualityBlockedQty,
+        availableQty,
+        physicalKg,
+        ownedKg: ownershipValue === 'COMPANY_OWNED' ? physicalKg : 0,
+        supplierOwnedKg: ownershipValue === 'COMPANY_OWNED' ? 0 : physicalKg,
+        reservedKg,
+        qualityBlockedKg,
+        availableKg,
+        lastTransactionAt: (row.lastTransactionAt || row.updatedAt).toISOString(),
+      };
+    });
 
+    let filtered = balances;
     if (partId && typeof partId === 'string' && partId !== 'ALL') {
       filtered = filtered.filter(b => b.partId === partId || b.partCode === partId);
     }
@@ -2655,50 +2717,26 @@ apiRouter.get('/inventory/stock-inquiry', (req: Request, res: Response) => {
       filtered = filtered.filter(b => b.ownership === ownership);
     }
     if (search && typeof search === 'string' && search.trim()) {
-      const q = search.toLowerCase();
-      filtered = filtered.filter(
-        b =>
-          b.partName.toLowerCase().includes(q) ||
-          b.partCode.toLowerCase().includes(q) ||
-          (b.lotNumber && b.lotNumber.toLowerCase().includes(q)) ||
-          (b.heatNumber && b.heatNumber.toLowerCase().includes(q)) ||
-          b.warehouseName.toLowerCase().includes(q)
+      const q = search.trim().toLocaleLowerCase();
+      filtered = filtered.filter(b =>
+        b.partName.toLocaleLowerCase().includes(q) ||
+        b.partCode.toLocaleLowerCase().includes(q) ||
+        (b.lotNumber && b.lotNumber.toLocaleLowerCase().includes(q)) ||
+        (b.coilPackNumber && b.coilPackNumber.toLocaleLowerCase().includes(q)) ||
+        (b.heatNumber && b.heatNumber.toLocaleLowerCase().includes(q)) ||
+        b.warehouseName.toLocaleLowerCase().includes(q)
       );
     }
 
-    // Apply any active QC Hold (قرنطینه کیفی) overrides from serverQcHoldStore so ATP is immediately reduced
-    filtered = filtered.map(b => {
-      const hold =
-        serverQcHoldStore[b.id] ||
-        (b.lotNumber ? serverQcHoldStore[b.lotNumber] : undefined) ||
-        serverQcHoldStore[`${b.partId}-${b.warehouseId}`];
-      if (!hold || !hold.isHeld) return b;
-      const addedBlocked = Number(hold.heldQty || b.availableQty || b.physicalQty || 0);
-      const newBlockedQty = Math.min(b.physicalQty, (b.qualityBlockedQty || 0) + addedBlocked);
-      const newAvailableQty = Math.max(0, b.physicalQty - b.reservedQty - newBlockedQty);
-      const unitWeight = b.physicalQty > 0 ? b.physicalKg / b.physicalQty : 1;
-      return {
-        ...b,
-        qualityBlockedQty: newBlockedQty,
-        availableQty: newAvailableQty,
-        availableKg: Math.round(newAvailableQty * unitWeight * 100) / 100,
-      };
-    });
-
-    // Keep zero-stock catalog parts when searching, when explicitly asked, or by default unless onlyAvailable is true
-    const isSearching = !!(search && typeof search === 'string' && search.trim()) || (partId && partId !== 'ALL');
+    // QC holds must be persisted as stock quality status. Legacy cache-only holds
+    // are deliberately not overlaid on the database result as a second source of truth.
+    const isSearching = !!(search && typeof search === 'string' && search.trim()) || Boolean(partId && partId !== 'ALL');
     const filterOutZero = req.query.onlyAvailable === 'true' || req.query.onlyNonZero === 'true';
-    
     if (filterOutZero && !isSearching) {
       filtered = filtered.filter(b => b.physicalQty > 0 || b.reservedQty > 0 || b.qualityBlockedQty > 0);
     }
 
-    res.json({
-      success: true,
-      count: filtered.length,
-      data: filtered,
-      qcHolds: serverQcHoldStore,
-    });
+    res.json({ success: true, count: filtered.length, data: filtered, qcHolds: {} });
   } catch (error) {
     res.status(500).json({
       success: false,
