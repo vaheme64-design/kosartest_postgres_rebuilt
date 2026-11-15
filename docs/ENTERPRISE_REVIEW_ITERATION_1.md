@@ -221,3 +221,24 @@ A server process restart or a second application instance must not change the an
 - Commit: `798596de572104b2c4f492ad468e34a2429243bd`
 - CI run: [43704559957](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43704559957) — **success**. Prisma validation, clean PostgreSQL migration preview/deploy, TypeScript check, production build, inventory regression, WIP/planning/report tests, physical-coil persistence, inventory HTTP lifecycle, and first-operation coil-to-WIP integration all passed.
 - No claim of production readiness is made. The endpoint change must pass CI and relational HTTP tests before acceptance.
+
+
+## Follow-up source verification — remaining Iteration 2 blockers (2026-11-15)
+
+The following findings were re-checked directly against the current branch after the relational stock-inquiry change:
+
+1. **Dashboard summary still reads process memory.** `src/App.tsx` calls `GET /api/inventory/summary` during `loadAllData`. The route in `src/server/apiRouter.ts` still calls `calculateInventoryLedger(transactionsStore, partsStore)`.
+2. **The legacy transaction list still reads process memory.** `src/App.tsx` calls `GET /api/inventory/transactions`; that route filters and paginates `transactionsStore`, not PostgreSQL `InventoryTransaction`.
+3. **Legacy mutation endpoints remain memory-backed.** `POST /api/inventory/validate-and-post` and `POST /api/inventory/reverse` mutate `transactionsStore`. These stage-based vouchers are not interchangeable with the normalized warehouse-document ledger; a safe conversion requires an explicit mapping and regression coverage, not a superficial Prisma query replacement.
+4. **Stock inquiry is relational but not yet scalable.** It currently loads all `StockBalance` rows and applies filters in application memory. Server-side filtering/pagination remains outstanding.
+5. **QC hold remains a split persistence path.** `POST /api/inventory/qc-hold` updates process-local `serverQcHoldStore` and snapshot state; the stock inquiry no longer overlays this cache on PostgreSQL balances. Until QC hold is persisted as a relational stock-quality change, the UI/API workflow is not end-to-end consistent.
+
+### Current decision
+
+These are release-blocking gaps for the requested authoritative inventory workflow. They are recorded as verified findings, not marked as fixed. The stage-based production/WIP ledger and normalized warehouse inventory ledger must be reconciled deliberately before replacing the legacy routes. Do not declare Iteration 2 complete or merge this branch to `main` until these items have implementation commits and integration tests.
+
+### Latest branch verification
+
+- Branch head at time of verification: `7de3e220d09b5829d866a80e5c63d65a5921de64`.
+- Latest CI run observed: [43704653908](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43704653908) — **success** for that branch head.
+- This CI result verifies the committed code at that SHA; it does not resolve the outstanding findings above.
