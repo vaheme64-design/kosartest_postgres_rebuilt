@@ -219,5 +219,5 @@ A server process restart or a second application instance must not change the an
 
 ### Verification
 - Commit: `798596de572104b2c4f492ad468e34a2429243bd`
-- CI run: [43704559957](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43704559957) — running at the time this note was written.
+- CI run: [43704559957](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43704559957) — **success**. Prisma validation, clean PostgreSQL migration preview/deploy, TypeScript check, production build, inventory regression, WIP/planning/report tests, physical-coil persistence, inventory HTTP lifecycle, and first-operation coil-to-WIP integration all passed.
 - No claim of production readiness is made. The endpoint change must pass CI and relational HTTP tests before acceptance.
