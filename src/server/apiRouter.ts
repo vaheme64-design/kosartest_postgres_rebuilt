@@ -3895,7 +3895,7 @@ apiRouter.post('/inventory/coils', async (req: Request, res: Response) => {
       const canonicalWarehouse = WAREHOUSES_LIST.find(item =>
         item.code === (warehouse?.code || payload.warehouseId) || item.code === dbWarehouse.code
       );
-      if (!canonicalWarehouse || !canonicalWarehouse.locations?.includes(newCoil.warehouseLocationCode)) {
+      if (!newCoil.warehouseLocationCode || !canonicalWarehouse || !canonicalWarehouse.locations?.includes(newCoil.warehouseLocationCode)) {
         throw new Error(`موقعیت انبار «${newCoil.warehouseLocationCode}» در انبار انتخاب‌شده تعریف نشده است.`);
       }
       const dbLocation = await tx.warehouseLocation.upsert({
