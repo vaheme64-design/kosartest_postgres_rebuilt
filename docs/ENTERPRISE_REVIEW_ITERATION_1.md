@@ -41,8 +41,8 @@ Do not replace the application wholesale. Preserve the domain model and tested t
 
 ### A. Traceability and transaction consistency — Critical
 
-**A1. Parallel legacy inventory endpoints remain active.**  
-`GET /api/inventory/transactions`, `POST /api/inventory/validate-and-post`, and `POST /api/inventory/reverse` operate on process-local `transactionsStore`. The newer document workflow uses relational posting, but the legacy endpoints are still registered. If a UI path or integration calls the legacy endpoints, it can display or mutate a different ledger from PostgreSQL.
+**A1. Parallel legacy inventory endpoints remain active and are called by the application shell.**  
+`App.tsx` loads `/api/inventory/summary` and `/api/inventory/transactions` at startup. Those endpoints calculate/read process-local `transactionsStore`; the startup hydration function loads relational documents, coils, reservations, and audit rows, but does not hydrate `transactionsStore` from `InventoryTransaction`. The legacy posting/reversal endpoints also mutate this in-memory store. The result is that global dashboard state can diverge from the PostgreSQL ledger even while the newer inventory screens use document-backed paths.
 
 **Why this fails the criterion:** one business event can be represented differently depending on which endpoint was called. A traceability promise is only valid when every posting route reaches the same authoritative ledger.
 
@@ -68,12 +68,13 @@ The old `validate-and-post` endpoint validates and prepends to the in-memory tra
 **B2. Some generic document data is assembled from client values and legacy stores before posting.**  
 The document creation handler derives part details, weight, warehouse display data, and generated identifiers from process-local stores. The canonical relational post later validates balances, but the preparation layer should resolve all authoritative identities and conversions from PostgreSQL.
 
-**B3. Coil receipt and generic material receipt are coupled through post-posting cache synchronization.**  
-The generic receipt path creates/updates physical-coil cache records after the relational document posting. This is a fragile dual-write boundary: the document/stock transaction may commit while the subsequent snapshot update fails.
+**B3. Generic receipt performs a second write after the relational posting.**  
+The generic document auto-post path creates/updates physical-coil cache records after the relational document/ledger/stock transaction has committed, then persists an application-state snapshot. If the later snapshot write fails, the API can return an error even though the stock posting already committed. A client retry can create a second document because this generic document path does not show the same stable idempotency-key contract as the dedicated coil-issue path. This needs an idempotency key and one atomic relational receipt/coil/lot/allocation transaction.
 
 **Required correction:** create the physical coil, lot, contract allocations, document, ledger movements, and stock balances in one database transaction. Do not use a follow-up cache write as the only representation of a physical coil.
 
-**B4. QC hold state has a client-side/local storage path as well as a server endpoint.**  
+**B4. Stock inquiry and global summary do not share one authoritative read model.**  
+`GET /api/inventory/stock-inquiry` calculates balances from the process-local `inventoryDocsStore` and reservations, even though a relational `StockBalance` model exists. The global application shell separately reads the older transaction store. This means two screens can calculate the same stock position from different sources, and a second server instance can serve a stale document cache.\n\n**B5. QC hold state has a client-side/local storage path as well as a server endpoint.**  
 The stock inquiry UI applies QC hold overrides locally and persists the local map. This risks disagreement between browser state and authoritative available stock if any workflow bypasses the server-held status.
 
 **Required correction:** QC hold/release must be a relational status/transaction with actor, timestamp, reason, and quantity; the UI must display the server result only.
