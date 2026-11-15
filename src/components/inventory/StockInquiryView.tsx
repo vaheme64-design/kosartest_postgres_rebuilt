@@ -66,18 +66,20 @@ interface StockInquiryViewProps {
   onRefresh: () => Promise<void>;
 }
 
+// Compact operational preset: show the identity, location, and decision-making quantities first.
+// Traceability attributes remain available through the column chooser and row details.
 const DEFAULT_VISIBLE_COLUMNS = {
   partCode: true,
   partName: true,
   warehouse: true,
-  lotNumber: true,
-  contract: true,
-  ownership: true,
+  lotNumber: false,
+  contract: false,
+  ownership: false,
   physicalQty: true,
   availableQty: true,
-  reservedQty: true,
+  reservedQty: false,
   blockedQty: false,
-  physicalKg: true,
+  physicalKg: false,
   lastTx: false,
 };
 
@@ -325,7 +327,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [visibleCols, setVisibleCols] = useState<typeof DEFAULT_VISIBLE_COLUMNS>(() => {
     if (typeof window === 'undefined') return DEFAULT_VISIBLE_COLUMNS;
     try {
-      const saved = window.localStorage.getItem('kpims_stock_inquiry_cols_v2');
+      const saved = window.localStorage.getItem('kpims_stock_inquiry_cols_v3');
       return saved ? { ...DEFAULT_VISIBLE_COLUMNS, ...JSON.parse(saved) } : DEFAULT_VISIBLE_COLUMNS;
     } catch {
       return DEFAULT_VISIBLE_COLUMNS;
@@ -337,7 +339,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const pageSize = 15;
 
   // Sorting
-  const [sortField, setSortField] = useState<keyof DetailedStockBalance>('physicalKg');
+  const [sortField, setSortField] = useState<keyof DetailedStockBalance>('availableQty');
   const [sortAsc, setSortAsc] = useState(false);
 
   // Unique material grades
@@ -521,7 +523,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
 
   const handleSaveViewPreferences = () => {
     try {
-      window.localStorage.setItem('kpims_stock_inquiry_cols_v2', JSON.stringify(visibleCols));
+      window.localStorage.setItem('kpims_stock_inquiry_cols_v3', JSON.stringify(visibleCols));
       setSavedViewNotice(true);
       setTimeout(() => setSavedViewNotice(false), 2500);
     } catch {
