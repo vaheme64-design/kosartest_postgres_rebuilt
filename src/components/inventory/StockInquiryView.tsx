@@ -752,9 +752,9 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   };
 
   return (
-    <div className="min-h-full space-y-4 bg-[#f5f7fa] p-1 text-slate-800">
+    <div className="min-h-full space-y-3 bg-[#f5f7fa] p-2 text-slate-800" dir="rtl">
       {/* Enterprise List Report Header */}
-      <div className="bg-white px-5 py-4 rounded-lg border border-slate-200 border-t-[3px] border-t-[#0a6ed1] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+      <div className="bg-white px-5 py-4 rounded-md border border-slate-200 border-r-4 border-r-[#0a6ed1] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-slate-900 flex items-center gap-2">
             <Boxes className="w-5 h-5 text-[#0a6ed1]" />
@@ -797,7 +797,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
       </div>
 
       {/* Mode Switcher Bar: Part Stock + Cardex vs Analytical Table vs Coil Slitting Genealogy */}
-      <div className="bg-white p-1.5 rounded-lg border border-slate-200 flex flex-wrap items-center gap-1 shadow-sm">
+      <div className="bg-white px-2 py-2 rounded-md border border-slate-200 flex flex-wrap items-center gap-1">
         <button
           type="button"
           onClick={() => setInquiryMode('PART_CARDEX')}
@@ -1250,7 +1250,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
 
       {/* Column Visibility Customizer Drawer */}
       {showColumnPicker && (
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 text-xs">
+        <div className="bg-white p-4 rounded-md border border-slate-200 space-y-3 text-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2">
             <span className="font-bold text-slate-800">انتخاب ستون‌های قابل نمایش در جدول موجودی:</span>
             <div className="flex items-center gap-2">
@@ -1300,26 +1300,26 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
       )}
 
       {/* 4 Summary KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        <div className="bg-white px-4 py-3 rounded-lg border border-slate-200 shadow-sm">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-px bg-slate-200 border border-slate-200 rounded-md overflow-hidden">
+        <div className="bg-white px-4 py-2.5">
           <span className="text-xs text-slate-500">موجودی فیزیکی کل (نتایج فیلترشده)</span>
           <div className="text-lg font-bold text-slate-900 mt-1 font-mono tabular-nums">
             {formatWeightKg(totalPhysicalKg)}
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="bg-white px-4 py-2.5">
           <span className="text-xs text-slate-500">موجودی قابل استفاده (آزاد جهت تولید)</span>
           <div className="text-lg font-bold text-emerald-700 mt-1 font-mono tabular-nums">
             {formatWeightKg(totalAvailableKg)}
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="bg-white px-4 py-2.5">
           <span className="text-xs text-slate-500">ورق و اقلام امانی ساپکو</span>
           <div className="text-lg font-bold text-amber-700 mt-1 font-mono tabular-nums">
             {formatWeightKg(totalSapcoKg)}
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="bg-white px-4 py-2.5">
           <span className="text-xs text-slate-500">رزرو شده جهت خطوط تولید</span>
           <div className="text-lg font-bold text-blue-700 mt-1 font-mono tabular-nums">
             {formatWeightKg(totalReservedKg)}
@@ -1328,8 +1328,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
       </div>
 
       {/* Filter & Grouping Bar */}
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-200 bg-[#f8fafc]">
+      <div className="bg-white rounded-md border border-slate-200 overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 bg-[#f7f9fb]">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-800"><SlidersHorizontal className="w-4 h-4 text-[#0a6ed1]" /> فیلترهای موجودی</div>
           <span className="text-[11px] text-slate-500">فیلترها را ترکیب کنید تا نتیجه دقیق‌تری بگیرید</span>
         </div>
@@ -1564,15 +1564,15 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
         </div>
       ) : (
         /* Standard Table with Expandable Details */
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-slate-200 bg-[#f8fafc]">
+        <div className="bg-white rounded-md border border-slate-200 overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 bg-[#f7f9fb]">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-800"><FileSpreadsheet className="w-4 h-4 text-[#0a6ed1]" /> فهرست موجودی انبارها <span className="font-normal text-slate-500">({toPersianDigits(filteredBalances.length)} رکورد)</span></div>
             <div className="flex items-center gap-2 text-[11px] text-slate-500"><span>{loading ? "در حال به‌روزرسانی..." : "اطلاعات بر اساس موجودی ثبت‌شده"}</span><button type="button" onClick={() => { setSearchTerm(""); setSelectedPartFilter("ALL"); setSelectedWarehouseFilter("ALL"); setSelectedOwnershipFilter("ALL"); setSelectedGradeFilter("ALL"); setSelectedContractFilter("ALL"); setSelectedLotFilter("ALL"); setOnlyAvailable(false); setGroupBy("NONE"); }} className="px-2.5 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">پاک‌کردن فیلترها</button></div>
           </div>
-          <div className="overflow-x-auto max-h-[68vh]">
-            <table className="w-full min-w-[980px] text-right text-xs">
+          <div className="overflow-auto max-h-[calc(100vh-360px)]">
+            <table className="w-full min-w-[1120px] text-right text-xs border-separate border-spacing-0">
               <thead className="sticky top-0 z-10">
-                <tr className="bg-[#f1f4f8] border-b border-slate-300 text-slate-700 font-semibold select-none">
+                <tr className="bg-[#eef3f8] border-b border-slate-300 text-slate-700 font-semibold select-none">
                   <th className="py-3 px-3 w-8" />
                   {visibleCols.partCode && <th className="py-3 px-3">کد کالا</th>}
                   {visibleCols.partName && <th className="py-3 px-3">نام کالا و مشخصات فنی</th>}
