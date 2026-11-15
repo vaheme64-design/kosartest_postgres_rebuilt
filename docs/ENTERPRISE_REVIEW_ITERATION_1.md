@@ -194,3 +194,30 @@ Scores are preliminary source-review ratings, not test pass rates.
 - `docs/PLANNING_POSTGRESQL_PERSISTENCE.md`
 - `security_spec.md`
 - `.github/workflows/ci.yml`
+
+
+---
+
+## Iteration 2 progress — authoritative stock inquiry (2026-11-15)
+
+### Change committed
+- Replaced the `GET /inventory/stock-inquiry` read path so it reads multidimensional balances directly from PostgreSQL `StockBalance`, including related part/material/unit, warehouse/location, material lot, and physical coil records.
+- Stock quantity, reserved quantity, available quantity, quality-blocked quantity, and weight now come from persisted balance fields rather than a recalculation over process-local `inventoryDocsStore` and `reservationsStore`.
+- Search now also recognizes the physical coil pack number.
+- The endpoint fails closed with HTTP 503 when PostgreSQL is not configured instead of silently serving an in-memory stock view.
+- Legacy cache-only QC hold overlays are no longer applied to this relational result. This intentionally exposes the remaining QC persistence gap rather than allowing a cache value to silently disagree with PostgreSQL.
+
+### Why this change matters
+A server process restart or a second application instance must not change the answer to “how much stock is available?”. The stock inquiry is now anchored to the database balance model that document posting updates. This is a first convergence step, not proof that all inventory routes are canonical.
+
+### Remaining work in this iteration
+1. Convert inventory summary and transaction ledger endpoints to relational queries.
+2. Convert documents, reservations, QC hold, and coil issue/return reads and writes to a single persistent source of truth.
+3. Add reconciliation tests comparing posted transaction totals to StockBalance across receipt, issue, transfer, adjustment, reservation, and reversal.
+4. Resolve post-commit snapshot failure/idempotency behavior in receipt and coil workflows.
+5. Complete end-to-end authentication/authorization before treating any API as production-safe.
+
+### Verification
+- Commit: `798596de572104b2c4f492ad468e34a2429243bd`
+- CI run: [43704559957](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43704559957) — running at the time this note was written.
+- No claim of production readiness is made. The endpoint change must pass CI and relational HTTP tests before acceptance.
