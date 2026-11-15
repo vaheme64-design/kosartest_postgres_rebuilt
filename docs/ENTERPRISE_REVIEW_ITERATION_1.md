@@ -242,3 +242,24 @@ These are release-blocking gaps for the requested authoritative inventory workfl
 - Branch head at time of verification: `7de3e220d09b5829d866a80e5c63d65a5921de64`.
 - Latest CI run observed: [43704653908](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43704653908) — **success** for that branch head.
 - This CI result verifies the committed code at that SHA; it does not resolve the outstanding findings above.
+
+
+## Safety containment commit — legacy in-memory stage ledger (2026-11-15)
+
+### Implemented
+In PostgreSQL mode (`DATABASE_URL` configured), the following legacy routes now fail closed with HTTP 503 and an explicit Persian explanation instead of returning or mutating process-local data:
+
+- `GET /inventory/summary`
+- `GET /inventory/transactions`
+- `POST /inventory/validate-and-post`
+- `POST /inventory/reverse`
+
+### Rationale and scope
+The legacy stage-based production/WIP voucher model is not equivalent to the normalized warehouse `InventoryDocument` / `InventoryTransaction` ledger. A direct field mapping would risk changing stage-transfer, in-transit, reversal, and stock-sign semantics. Until a tested relational stage-ledger adapter exists, these routes must not report success or imply durable posting in PostgreSQL mode.
+
+This is a **safety containment**, not completion of the stage ledger migration. The existing UI consumers will receive an explicit unsuccessful API response; the stage-ledger screens still require a relational implementation and user-visible error handling. Non-PostgreSQL/demo mode retains the previous in-memory behavior.
+
+### Verification
+- Code commit: `c6120b64c83476d91413367e6c96c95850d9b84e`
+- CI result: pending at time of this report update.
+- Still outstanding: relational stage-ledger model/adapter, end-to-end API tests for stage transfer and reversal, UI handling of 503 responses, QC hold persistence, stock-inquiry server pagination, and end-to-end authorization.
