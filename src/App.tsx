@@ -80,30 +80,30 @@ function AppContent() {
 
   // Multi-Template & Color Theme Engine (Persisted in localStorage)
   const [layoutTemplate, setLayoutTemplate] = useState<ErpLayoutTemplate>(() => {
-    const saved = localStorage.getItem('kpims_layout_template') as ErpLayoutTemplate | null;
-    return saved || 'HUB_WORKSPACE';
+    const saved = localStorage.getItem('kpims_layout_template_v2') as ErpLayoutTemplate | null;
+    return saved || 'CLASSIC_COMMAND';
   });
   const [colorTheme, setColorTheme] = useState<ErpColorTheme>(() => {
-    const saved = localStorage.getItem('kpims_color_theme') as ErpColorTheme | null;
-    return saved || 'EMERALD_KOSAR';
+    const saved = localStorage.getItem('kpims_color_theme_v2') as ErpColorTheme | null;
+    return saved || 'ERPNEXT_BLUE';
   });
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
 
   const handleSelectTemplate = (tpl: ErpLayoutTemplate) => {
     setLayoutTemplate(tpl);
-    localStorage.setItem('kpims_layout_template', tpl);
+    localStorage.setItem('kpims_layout_template_v2', tpl);
     if (tpl === 'ODOO_ENTERPRISE') {
       setColorTheme('ODOO_PLUM');
-      localStorage.setItem('kpims_color_theme', 'ODOO_PLUM');
+      localStorage.setItem('kpims_color_theme_v2', 'ODOO_PLUM');
     } else if (tpl === 'HUB_WORKSPACE' || tpl === 'TABBED_WORKBENCH') {
       setColorTheme('EMERALD_KOSAR');
-      localStorage.setItem('kpims_color_theme', 'EMERALD_KOSAR');
+      localStorage.setItem('kpims_color_theme_v2', 'EMERALD_KOSAR');
     }
   };
 
   const handleSelectColor = (clr: ErpColorTheme) => {
     setColorTheme(clr);
-    localStorage.setItem('kpims_color_theme', clr);
+    localStorage.setItem('kpims_color_theme_v2', clr);
   };
 
   const [initialVoucherType, setInitialVoucherType] = useState<VoucherType>('RECEIPT');
@@ -123,6 +123,7 @@ function AppContent() {
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
   const [coils, setCoils] = useState<SapcoCoilReceipt[]>([]);
   const [summary, setSummary] = useState<any>(null);
+  const [inventoryLedgerUnavailable, setInventoryLedgerUnavailable] = useState(false);
 
   // Auth & Role
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -173,8 +174,8 @@ function AppContent() {
         plansRes,
         coilsRes,
       ] = await Promise.all([
-        fetch('/api/inventory/summary').then(r => r.json()),
-        fetch('/api/inventory/transactions').then(r => r.json()),
+        fetch('/api/inventory/summary').then(async r => ({ ...(await r.json()), httpStatus: r.status })),
+        fetch('/api/inventory/transactions').then(async r => ({ ...(await r.json()), httpStatus: r.status })),
         fetch('/api/parts').then(r => r.json()),
         fetch('/api/machines').then(r => r.json()),
         fetch('/api/routings').then(r => r.json()),
@@ -185,8 +186,13 @@ function AppContent() {
         fetch('/api/sapco/coils').then(r => r.json()).catch(() => ({ success: false })),
       ]);
 
-      if (sumRes.success) setSummary(sumRes.data);
-      if (txRes.success) setTransactions(txRes.data);
+      // Never keep stale in-memory ledger data visible when PostgreSQL explicitly rejects
+      // the legacy stage-ledger endpoints. Other master data can still load normally.
+      setSummary(sumRes.success ? sumRes.data : null);
+      setTransactions(txRes.success ? txRes.data : []);
+      setInventoryLedgerUnavailable(
+        sumRes.httpStatus === 503 || txRes.httpStatus === 503 || !sumRes.success || !txRes.success
+      );
       if (partsRes.success) setParts(partsRes.data);
       if (machinesRes.success) setMachines(machinesRes.data);
       if (routingsRes.success) setRoutings(routingsRes.data);
@@ -196,24 +202,28 @@ function AppContent() {
       if (plansRes.success) setPlans(plansRes.data);
       if (coilsRes.success) setCoils(coilsRes.data);
 
-      try {
-        localStorage.setItem(
-          'kpims_offline_erp_snapshot',
-          JSON.stringify({
-            summary: sumRes.data,
-            transactions: txRes.data,
-            parts: partsRes.data,
-            machines: machinesRes.data,
-            routings: routingsRes.data,
-            dies: diesRes.data,
-            operators: opsRes.data,
-            halls: hallsRes.data,
-            plans: plansRes.data,
-            coils: coilsRes.data,
-          })
-        );
-      } catch {
-        // ignore quota errors
+      // Persist a coherent snapshot only when both ledger endpoints are authoritative.
+      // A 503 response must not overwrite or re-label an old snapshot as current data.
+      if (sumRes.success && txRes.success) {
+        try {
+          localStorage.setItem(
+            'kpims_offline_erp_snapshot',
+            JSON.stringify({
+              summary: sumRes.data,
+              transactions: txRes.data,
+              parts: partsRes.data,
+              machines: machinesRes.data,
+              routings: routingsRes.data,
+              dies: diesRes.data,
+              operators: opsRes.data,
+              halls: hallsRes.data,
+              plans: plansRes.data,
+              coils: coilsRes.data,
+            })
+          );
+        } catch {
+          // ignore quota errors
+        }
       }
     } catch (err) {
       console.warn('Network unavailable — loading factory data from offline snapshot:', err);
@@ -711,7 +721,20 @@ function AppContent() {
   );
 
   const mainContentElement = (
-    <main className="flex-1 p-5 md:p-7 overflow-y-auto max-w-7xl mx-auto w-full space-y-6">
+    <main className="fiori-workspace flex-1 min-w-0 p-3 md:p-5 xl:p-6 overflow-y-auto w-full space-y-5">
+      {inventoryLedgerUnavailable && (
+        <div
+          role="status"
+          className="flex flex-col gap-1 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-right text-sm text-amber-950"
+        >
+          <strong className="font-semibold">اطلاعات دفتر موجودی مرحله‌ای در این نسخه در دسترس نیست</strong>
+          <span className="text-xs leading-6">
+            مسیر قدیمی دفتر موجودی در حالت PostgreSQL غیرفعال شده تا موجودی غیرماندگار نمایش داده نشود.
+            اطلاعات پایه همچنان قابل استفاده است؛ موجودی مرحله‌ای و گردش اسناد را تا تکمیل اتصال جدید، مبنای تصمیم تولید یا انبار قرار ندهید.
+          </span>
+        </div>
+      )}
+
       {/* 1. Dashboard */}
       {activeTab === 'dashboard' && (
         <DashboardView
@@ -959,7 +982,7 @@ function AppContent() {
   );
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col font-sans selection:bg-emerald-700 selection:text-white">
+    <div className="fiori-shell min-h-screen bg-[#f3f5f7] text-slate-900 flex flex-col font-sans selection:bg-blue-700 selection:text-white">
       {isSidebarFullHeight ? (
         /* Layout A (Image 1 / ERPNext Workspace): Dark Right Sidebar spans full height, White Top Bar sits above main workspace */
         <div className="flex-1 flex flex-col md:flex-row min-h-screen">
