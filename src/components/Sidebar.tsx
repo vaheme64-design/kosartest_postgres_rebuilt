@@ -212,7 +212,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const themeMeta = COLOR_THEMES[colorTheme];
   const isDarkSidebar = false;
-  const isFlatListMode = true;
+  // Prefer grouped, role-oriented navigation over a long flat module list.
+  const isFlatListMode = false;
 
   // 1. Inventory Sub-Modules (انبار و موجودی - بدون تکرار)
   const inventorySubModules: SubModuleLink[] = useMemo(
