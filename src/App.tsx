@@ -98,6 +98,9 @@ function AppContent() {
     } else if (tpl === 'HUB_WORKSPACE' || tpl === 'TABBED_WORKBENCH') {
       setColorTheme('EMERALD_KOSAR');
       localStorage.setItem('kpims_color_theme_v2', 'EMERALD_KOSAR');
+    } else if (tpl === 'CLASSIC_COMMAND') {
+      setColorTheme('ERPNEXT_BLUE');
+      localStorage.setItem('kpims_color_theme_v2', 'ERPNEXT_BLUE');
     }
   };
 
