@@ -2767,6 +2767,68 @@ apiRouter.post('/inventory/qc-hold', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'شناسه ردیف موجودی یا کلاف الزامی است.' });
     }
 
+    // In PostgreSQL mode, quality holds must update the authoritative stock
+    // balance (and the physical coil when applicable), not a process-local cache.
+    if (isDatabaseUrlConfigured()) {
+      const prisma = getPrismaClient();
+      const nextQualityStatus = isHeld ? 'QUARANTINE' : 'AVAILABLE';
+      const result = await prisma.$transaction(async (tx: any) => {
+        const balance = await tx.stockBalance.findUnique({
+          where: { id: String(key) },
+          include: { physicalCoil: true },
+        });
+
+        const coil = balance?.physicalCoil || await tx.physicalCoil.findFirst({
+          where: { OR: [{ id: String(key) }, { coilId: String(key) }] },
+        });
+
+        if (balance) {
+          await tx.stockBalance.update({
+            where: { id: balance.id },
+            data: { qualityStatus: nextQualityStatus },
+          });
+        }
+
+        if (coil) {
+          await tx.physicalCoil.update({
+            where: { id: coil.id },
+            data: {
+              qualityStatus: nextQualityStatus,
+              physicalStatus: isHeld
+                ? 'BLOCKED'
+                : Number(coil.remainingWeightKg || 0) > 0 ? 'AVAILABLE' : 'CONSUMED',
+            },
+          });
+
+          if (!balance) {
+            await tx.stockBalance.updateMany({
+              where: { physicalCoilId: coil.id },
+              data: { qualityStatus: nextQualityStatus },
+            });
+          }
+        }
+
+        if (!balance && !coil) {
+          throw new Error('ردیف موجودی یا کلاف متناظر در PostgreSQL یافت نشد.');
+        }
+
+        return { balanceId: balance?.id || null, coilId: coil?.id || null };
+      });
+
+      await persistInventoryAppState().catch(err => {
+        console.warn('QC hold snapshot warning after PostgreSQL update:', err?.message || err);
+      });
+
+      return res.json({
+        success: true,
+        message: isHeld
+          ? 'قرنطینه کیفی در PostgreSQL ثبت شد و موجودی از ATP خارج گردید.'
+          : 'رفع قرنطینه کیفی در PostgreSQL ثبت شد و موجودی آزاد گردید.',
+        data: { key, isHeld: Boolean(isHeld), qualityStatus: nextQualityStatus, ...result },
+        qcHolds: {},
+      });
+    }
+
     if (isHeld) {
       serverQcHoldStore[key] = {
         key,
