@@ -32,6 +32,41 @@
   }
 }
 
+/* SAP Fiori-inspired enterprise workspace foundation */
+.fiori-shell {
+  --fiori-accent: #0a6ed1;
+  --fiori-accent-hover: #085caf;
+  --fiori-canvas: #f3f5f7;
+  --fiori-surface: #ffffff;
+  --fiori-border: #d9dfe5;
+  --fiori-text: #1d2d3e;
+  background: var(--fiori-canvas);
+  color: var(--fiori-text);
+}
+
+.fiori-shell main {
+  max-width: none;
+  min-width: 0;
+}
+
+.fiori-shell :is(input, select, textarea):focus-visible {
+  outline: 2px solid var(--fiori-accent);
+  outline-offset: 1px;
+}
+
+.fiori-shell table {
+  font-variant-numeric: tabular-nums;
+}
+
+.fiori-shell :is(th, td) {
+  vertical-align: middle;
+}
+
+.fiori-shell ::selection {
+  background: #d1e8ff;
+  color: #0b2f52;
+}
+
 /* Minimal neutral scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
