@@ -2649,21 +2649,103 @@ apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) =>
       return res.status(503).json({ success: false, error: 'برای استعلام موجودی معتبر، اتصال PostgreSQL الزامی است.' });
     }
 
-    const { partId, materialGrade, warehouseId, locationCode, ownership, search } = req.query;
     const prisma = getPrismaClient();
+    const queryValue = (key: string): string | undefined => {
+      const value = req.query[key];
+      return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+    };
+    const exactFilter = (value: string | undefined) => value && value !== 'ALL' ? value : undefined;
 
-    // PostgreSQL StockBalance is the authoritative read model. Do not calculate
-    // operational stock from process-local document/reservation caches.
-    const dbBalances = await prisma.stockBalance.findMany({
-      include: {
-        part: { include: { material: true, unit: true } },
-        warehouse: true,
-        location: true,
-        materialLot: true,
-        physicalCoil: true,
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-    });
+    const partId = exactFilter(queryValue('partId'));
+    const materialGrade = exactFilter(queryValue('materialGrade'));
+    const warehouseId = exactFilter(queryValue('warehouseId'));
+    const locationCode = exactFilter(queryValue('locationCode'));
+    const ownership = exactFilter(queryValue('ownership'));
+    const contractNumber = exactFilter(queryValue('contractNumber'));
+    const lotNumber = exactFilter(queryValue('lotNumber'));
+    const search = queryValue('search');
+    const onlyAvailable = queryValue('onlyAvailable') === 'true';
+    const onlyNonZero = queryValue('onlyNonZero') === 'true';
+
+    // Build the database predicate before reading rows. This keeps filtering,
+    // counting and optional pagination consistent on the authoritative ledger.
+    const where: any = {};
+    if (partId) {
+      where.OR = [{ partId }, { part: { partNumber: partId } }];
+    }
+    if (materialGrade) where.part = { ...(where.part || {}), material: { grade: materialGrade } };
+    if (warehouseId) where.warehouseId = warehouseId;
+    if (locationCode) where.location = { is: { code: locationCode } };
+    if (ownership) where.ownership = ownership;
+    if (contractNumber) where.contractNumber = contractNumber;
+    if (lotNumber) {
+      where.AND = [...(where.AND || []), {
+        OR: [
+          { materialLot: { is: { lotNumber } } },
+          { physicalCoil: { is: { coilId: lotNumber } } },
+        ],
+      }];
+    }
+    if (search) {
+      where.AND = [...(where.AND || []), {
+        OR: [
+          { part: { name: { contains: search, mode: 'insensitive' } } },
+          { part: { partNumber: { contains: search, mode: 'insensitive' } } },
+          { part: { material: { grade: { contains: search, mode: 'insensitive' } } } },
+          { materialLot: { is: { lotNumber: { contains: search, mode: 'insensitive' } } } },
+          { materialLot: { is: { heatNumber: { contains: search, mode: 'insensitive' } } } },
+          { physicalCoil: { is: { coilId: { contains: search, mode: 'insensitive' } } } },
+          { physicalCoil: { is: { coilPackNumber: { contains: search, mode: 'insensitive' } } } },
+          { physicalCoil: { is: { heatNumber: { contains: search, mode: 'insensitive' } } } },
+          { warehouse: { name: { contains: search, mode: 'insensitive' } } },
+          { contractNumber: { contains: search, mode: 'insensitive' } },
+        ],
+      }];
+    }
+    if (onlyAvailable) where.quantityAvailable = { gt: 0 };
+    if (onlyNonZero) {
+      where.OR = [
+        { quantityOnHand: { gt: 0 } },
+        { quantityReserved: { gt: 0 } },
+        { weightKgOnHand: { gt: 0 } },
+      ];
+    }
+
+    const requestedPage = Number.parseInt(queryValue('page') || '', 10);
+    const requestedLimit = Number.parseInt(queryValue('limit') || '', 10);
+    const paginationRequested = Number.isFinite(requestedPage) || Number.isFinite(requestedLimit);
+    const page = paginationRequested ? Math.max(1, Number.isFinite(requestedPage) ? requestedPage : 1) : undefined;
+    const limit = paginationRequested ? Math.min(200, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 50)) : undefined;
+    const offset = page && limit ? (page - 1) * limit : undefined;
+
+    const sortFieldMap: Record<string, string> = {
+      updatedAt: 'updatedAt',
+      lastTransactionAt: 'lastTransactionAt',
+      physicalQty: 'quantityOnHand',
+      availableQty: 'quantityAvailable',
+      reservedQty: 'quantityReserved',
+      physicalKg: 'weightKgOnHand',
+      availableKg: 'weightKgAvailable',
+    };
+    const requestedSort = queryValue('sortBy') || 'updatedAt';
+    const sortField = sortFieldMap[requestedSort] || 'updatedAt';
+    const sortOrder = queryValue('sortOrder') === 'asc' ? 'asc' : 'desc';
+
+    const [totalCount, dbBalances] = await prisma.$transaction([
+      prisma.stockBalance.count({ where }),
+      prisma.stockBalance.findMany({
+        where,
+        include: {
+          part: { include: { material: true, unit: true } },
+          warehouse: true,
+          location: true,
+          materialLot: true,
+          physicalCoil: true,
+        },
+        orderBy: [{ [sortField]: sortOrder }, { id: 'asc' }],
+        ...(paginationRequested ? { skip: offset, take: limit } : {}),
+      }),
+    ]);
 
     const balances: any[] = dbBalances.map((row: any) => {
       const physicalQty = Number(row.quantityOnHand || 0);
@@ -2676,7 +2758,7 @@ apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) =>
       const availableQty = blocked ? 0 : Math.max(0, Number(row.quantityAvailable ?? physicalQty - reservedQty));
       const availableKg = blocked ? 0 : Math.max(0, Number(row.weightKgAvailable ?? physicalKg - reservedKg));
       const ownershipValue = row.ownership || 'COMPANY_OWNED';
-      const lotNumber = row.materialLot?.lotNumber || row.physicalCoil?.coilId || undefined;
+      const lotNumberValue = row.materialLot?.lotNumber || row.physicalCoil?.coilId || undefined;
       return {
         id: row.id,
         partId: row.partId,
@@ -2689,7 +2771,7 @@ apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) =>
         warehouseName: row.warehouse.name,
         locationCode: row.location?.code || 'MAIN',
         materialLotId: row.materialLotId || undefined,
-        lotNumber,
+        lotNumber: lotNumberValue,
         coilPackNumber: row.physicalCoil?.coilPackNumber,
         heatNumber: row.materialLot?.heatNumber || row.physicalCoil?.heatNumber || undefined,
         ownership: ownershipValue,
@@ -2712,43 +2794,16 @@ apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) =>
       };
     });
 
-    let filtered = balances;
-    if (partId && typeof partId === 'string' && partId !== 'ALL') {
-      filtered = filtered.filter(b => b.partId === partId || b.partCode === partId);
-    }
-    if (materialGrade && typeof materialGrade === 'string' && materialGrade !== 'ALL') {
-      filtered = filtered.filter(b => b.materialGrade === materialGrade);
-    }
-    if (warehouseId && typeof warehouseId === 'string' && warehouseId !== 'ALL') {
-      filtered = filtered.filter(b => b.warehouseId === warehouseId);
-    }
-    if (locationCode && typeof locationCode === 'string' && locationCode !== 'ALL') {
-      filtered = filtered.filter(b => b.locationCode === locationCode);
-    }
-    if (ownership && typeof ownership === 'string' && ownership !== 'ALL') {
-      filtered = filtered.filter(b => b.ownership === ownership);
-    }
-    if (search && typeof search === 'string' && search.trim()) {
-      const q = search.trim().toLocaleLowerCase();
-      filtered = filtered.filter(b =>
-        b.partName.toLocaleLowerCase().includes(q) ||
-        b.partCode.toLocaleLowerCase().includes(q) ||
-        (b.lotNumber && b.lotNumber.toLocaleLowerCase().includes(q)) ||
-        (b.coilPackNumber && b.coilPackNumber.toLocaleLowerCase().includes(q)) ||
-        (b.heatNumber && b.heatNumber.toLocaleLowerCase().includes(q)) ||
-        b.warehouseName.toLocaleLowerCase().includes(q)
-      );
-    }
-
-    // QC holds must be persisted as stock quality status. Legacy cache-only holds
-    // are deliberately not overlaid on the database result as a second source of truth.
-    const isSearching = !!(search && typeof search === 'string' && search.trim()) || Boolean(partId && partId !== 'ALL');
-    const filterOutZero = req.query.onlyAvailable === 'true' || req.query.onlyNonZero === 'true';
-    if (filterOutZero && !isSearching) {
-      filtered = filtered.filter(b => b.physicalQty > 0 || b.reservedQty > 0 || b.qualityBlockedQty > 0);
-    }
-
-    res.json({ success: true, count: filtered.length, data: filtered, qcHolds: {} });
+    res.json({
+      success: true,
+      count: totalCount,
+      total: totalCount,
+      page: page || 1,
+      pageSize: limit || totalCount,
+      totalPages: limit ? Math.max(1, Math.ceil(totalCount / limit)) : 1,
+      data: balances,
+      qcHolds: {},
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
