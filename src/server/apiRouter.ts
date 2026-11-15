@@ -2702,13 +2702,18 @@ apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) =>
         ],
       }];
     }
-    if (onlyAvailable) where.quantityAvailable = { gt: 0 };
+    if (onlyAvailable) {
+      where.quantityAvailable = { gt: 0 };
+      where.qualityStatus = 'AVAILABLE';
+    }
     if (onlyNonZero) {
-      where.OR = [
-        { quantityOnHand: { gt: 0 } },
-        { quantityReserved: { gt: 0 } },
-        { weightKgOnHand: { gt: 0 } },
-      ];
+      where.AND = [...(where.AND || []), {
+        OR: [
+          { quantityOnHand: { gt: 0 } },
+          { quantityReserved: { gt: 0 } },
+          { weightKgOnHand: { gt: 0 } },
+        ],
+      }];
     }
 
     const requestedPage = Number.parseInt(queryValue('page') || '', 10);
