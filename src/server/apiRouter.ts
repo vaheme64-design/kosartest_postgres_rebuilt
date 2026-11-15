@@ -814,6 +814,9 @@ apiRouter.get('/health', (_req: Request, res: Response) => {
  * 1. Inventory Summary & Calculated Balances (Calculated Server-side)
  */
 apiRouter.get('/inventory/summary', (_req: Request, res: Response) => {
+  if (process.env.DATABASE_URL) {
+    return res.status(503).json({ success: false, error: 'گزارش مرحله‌ای قدیمی هنوز به دفترکل PostgreSQL متصل نشده است؛ برای جلوگیری از نمایش موجودی نادرست، این مسیر موقتاً غیرفعال است.' });
+  }
   try {
     const summary = calculateInventoryLedger(transactionsStore, partsStore);
     res.json({ success: true, data: summary });
@@ -829,6 +832,9 @@ apiRouter.get('/inventory/summary', (_req: Request, res: Response) => {
  * 2. Transaction Ledger with Search, Filters & Pagination
  */
 apiRouter.get('/inventory/transactions', (req: Request, res: Response) => {
+  if (process.env.DATABASE_URL) {
+    return res.status(503).json({ success: false, error: 'دفترکل مرحله‌ای قدیمی هنوز به تراکنش‌های PostgreSQL نگاشت نشده است؛ این مسیر موقتاً غیرفعال است.' });
+  }
   try {
     const { voucherType, stageId, partId, search, status, limit, offset } = req.query;
 
@@ -883,6 +889,9 @@ apiRouter.get('/inventory/transactions', (req: Request, res: Response) => {
  * 3. Validate & Post Transaction (Strict server-side validation & negative balance block)
  */
 apiRouter.post('/inventory/validate-and-post', (req: Request, res: Response) => {
+  if (process.env.DATABASE_URL) {
+    return res.status(503).json({ success: false, error: 'ثبت تراکنش در دفترکل مرحله‌ای حافظه‌ای در حالت PostgreSQL مجاز نیست. ابتدا باید نگاشت اتمیک آن به دفترکل تولید/WIP پیاده‌سازی شود.' });
+  }
   try {
     const payload = req.body;
     const user = {
@@ -928,6 +937,9 @@ apiRouter.post('/inventory/validate-and-post', (req: Request, res: Response) => 
  * 4. Reversal / Adjustment of Existing Voucher (No hard delete, immutable audit trail)
  */
 apiRouter.post('/inventory/reverse', (req: Request, res: Response) => {
+  if (process.env.DATABASE_URL) {
+    return res.status(503).json({ success: false, error: 'ابطال تراکنش در دفترکل مرحله‌ای حافظه‌ای در حالت PostgreSQL مجاز نیست. ابتدا باید مسیر ابطال relational با ثبت سند معکوس پیاده‌سازی شود.' });
+  }
   try {
     const { voucherId, reason, user } = req.body;
     if (!voucherId) {
