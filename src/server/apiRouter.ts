@@ -2663,6 +2663,12 @@ apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) =>
     const ownership = exactFilter(queryValue('ownership'));
     const contractNumber = exactFilter(queryValue('contractNumber'));
     const lotNumber = exactFilter(queryValue('lotNumber'));
+    const coilPackNumber = exactFilter(queryValue('coilPackNumber'));
+    const thicknessRaw = queryValue('thicknessMm');
+    const thicknessMm = thicknessRaw === undefined ? undefined : Number(thicknessRaw);
+    if (thicknessRaw !== undefined && (!Number.isFinite(thicknessMm) || thicknessMm! <= 0)) {
+      return res.status(400).json({ success: false, error: 'ضخامت باید عددی مثبت و معتبر باشد.' });
+    }
     const search = queryValue('search');
     const onlyAvailable = queryValue('onlyAvailable') === 'true';
     const onlyNonZero = queryValue('onlyNonZero') === 'true';
@@ -2683,6 +2689,18 @@ apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) =>
         OR: [
           { materialLot: { is: { lotNumber } } },
           { physicalCoil: { is: { coilId: lotNumber } } },
+        ],
+      }];
+    }
+    if (coilPackNumber) {
+      where.physicalCoil = { is: { coilPackNumber } };
+    }
+    if (thicknessMm !== undefined) {
+      where.AND = [...(where.AND || []), {
+        OR: [
+          { part: { thicknessMm } },
+          { materialLot: { is: { thicknessMm } } },
+          { physicalCoil: { is: { thicknessMm } } },
         ],
       }];
     }
