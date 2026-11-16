@@ -355,26 +355,28 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
         if (!listResult?.success || !Array.isArray(listResult.data)) {
           throw new Error(listResult?.error || 'دریافت صفحه موجودی از PostgreSQL ناموفق بود.');
         }
+        if (!summaryResult?.success || !summaryResult.data) {
+          throw new Error(summaryResult?.error || 'دریافت خلاصه موجودی از PostgreSQL ناموفق بود.');
+        }
+        if (!facetsResult?.success || !facetsResult.data) {
+          throw new Error(facetsResult?.error || 'دریافت گزینه‌های فیلتر موجودی از PostgreSQL ناموفق بود.');
+        }
         setServerPageBalances(listResult.data);
         setServerTotalCount(Number(listResult.total || 0));
         setServerTotalPages(Math.max(1, Number(listResult.totalPages || 1)));
-        if (summaryResult?.success && summaryResult.data) {
-          setServerSummary({
-            physicalKg: Number(summaryResult.data.physicalKg || 0),
-            availableKg: Number(summaryResult.data.availableKg || 0),
-            reservedKg: Number(summaryResult.data.reservedKg || 0),
-            sapcoOwnedKg: Number(summaryResult.data.sapcoOwnedKg || 0),
-          });
-        }
-        if (facetsResult?.success && facetsResult.data) {
-          setServerFacets({
+        setServerSummary({
+          physicalKg: Number(summaryResult.data.physicalKg || 0),
+          availableKg: Number(summaryResult.data.availableKg || 0),
+          reservedKg: Number(summaryResult.data.reservedKg || 0),
+          sapcoOwnedKg: Number(summaryResult.data.sapcoOwnedKg || 0),
+        });
+        setServerFacets({
             contractNumbers: Array.isArray(facetsResult.data.contractNumbers) ? facetsResult.data.contractNumbers : [],
             lotNumbers: Array.isArray(facetsResult.data.lotNumbers) ? facetsResult.data.lotNumbers : [],
             coilPackNumbers: Array.isArray(facetsResult.data.coilPackNumbers) ? facetsResult.data.coilPackNumbers : [],
             materialGrades: Array.isArray(facetsResult.data.materialGrades) ? facetsResult.data.materialGrades : [],
-            thicknesses: Array.isArray(facetsResult.data.thicknesses) ? facetsResult.data.thicknesses.map(Number) : [],
-          });
-        }
+          thicknesses: Array.isArray(facetsResult.data.thicknesses) ? facetsResult.data.thicknesses.map(Number) : [],
+        });
       })
       .catch(error => {
         if (error instanceof Error && error.name === 'AbortError') return;
@@ -382,6 +384,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
         setServerPageBalances([]);
         setServerTotalCount(0);
         setServerTotalPages(1);
+        setServerSummary(null);
+        setServerFacets(null);
       })
       .finally(() => {
         if (!controller.signal.aborted) setServerInquiryLoading(false);
@@ -1368,6 +1372,23 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* PostgreSQL inquiry status */}
+      <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px]">
+        <span className="text-slate-600">
+          {serverInquiryLoading
+            ? 'در حال به‌روزرسانی استعلام از PostgreSQL…'
+            : serverInquiryError
+              ? `خطا در استعلام: ${serverInquiryError}`
+              : `تعداد ردیف‌های منطبق با فیلترها: ${toPersianDigits(serverTotalCount)}`}
+        </span>
+        {serverInquiryLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-500" />}
+        {serverInquiryError && (
+          <button type="button" onClick={() => setCurrentPage(page => page)} className="text-rose-700 font-semibold">
+            تلاش مجدد
+          </button>
+        )}
+      </div>
 
       {/* 4 Summary KPI Cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-px bg-slate-200 border border-slate-200 rounded-md overflow-hidden">
