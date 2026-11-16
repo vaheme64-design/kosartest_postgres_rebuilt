@@ -133,6 +133,8 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
   const [metrics, setMetrics] = useState<InventoryDashboardMetrics | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseDefinition[]>(WAREHOUSES_LIST);
   const [balances, setBalances] = useState<DetailedStockBalance[]>([]);
+  const [warehouseStockSummary, setWarehouseStockSummary] = useState<Record<string, { physicalKg: number; physicalPcs: number; lotsCount: number; rowCount: number }>>({});
+  const [partStockSummary, setPartStockSummary] = useState<Record<string, { rowCount: number; availableQty: number; availableKg: number; locationsSummary: string[] }>>({});
   const [documents, setDocuments] = useState<InventoryDocument[]>([]);
   const [contracts, setContracts] = useState<SapcoContract[]>([]);
   const [customers, setCustomers] = useState<CustomerDefinition[]>([]);
@@ -173,10 +175,12 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
   const loadInventoryData = useCallback(async () => {
     setLoading(true);
     try {
-      const [metricsRes, whRes, inquiryRes, docsRes, sapcoRes, coilsRes, contractsRes, custRes] = await Promise.all([
+      const [metricsRes, whRes, inquiryRes, warehouseSummaryRes, partSummaryRes, docsRes, sapcoRes, coilsRes, contractsRes, custRes] = await Promise.all([
         fetch('/api/inventory/dashboard-metrics').then(r => r.json()),
         fetch('/api/inventory/warehouses').then(r => r.json()),
         fetch('/api/inventory/stock-inquiry').then(r => r.json()),
+        fetch('/api/inventory/stock-inquiry/warehouse-summary').then(r => r.json()),
+        fetch('/api/inventory/stock-inquiry/part-summary').then(r => r.json()),
         fetch('/api/inventory/documents').then(r => r.json()),
         fetch('/api/inventory/sapco-account').then(r => r.json()),
         fetch('/api/inventory/coils').then(r => r.json()),
@@ -187,6 +191,26 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
       if (metricsRes?.success && metricsRes.data) setMetrics(metricsRes.data);
       if (whRes?.success && Array.isArray(whRes.data) && whRes.data.length > 0) setWarehouses(whRes.data);
       if (inquiryRes?.success && Array.isArray(inquiryRes.data)) setBalances(inquiryRes.data);
+      if (warehouseSummaryRes?.success && Array.isArray(warehouseSummaryRes.data)) {
+        setWarehouseStockSummary(Object.fromEntries(warehouseSummaryRes.data.map((row: any) => [row.warehouseId, {
+          physicalKg: Number(row.physicalKg || 0),
+          physicalPcs: Number(row.physicalPcs || 0),
+          lotsCount: Number(row.lotsCount || 0),
+          rowCount: Number(row.rowCount || 0),
+        }])));
+      } else {
+        setWarehouseStockSummary({});
+      }
+      if (partSummaryRes?.success && Array.isArray(partSummaryRes.data)) {
+        setPartStockSummary(Object.fromEntries(partSummaryRes.data.map((row: any) => [row.partId, {
+          rowCount: Number(row.rowCount || 0),
+          availableQty: Number(row.availableQty || 0),
+          availableKg: Number(row.availableKg || 0),
+          locationsSummary: Array.isArray(row.locationsSummary) ? row.locationsSummary : [],
+        }])));
+      } else {
+        setPartStockSummary({});
+      }
       if (docsRes?.success && Array.isArray(docsRes.data)) setDocuments(docsRes.data);
       if (coilsRes?.success && Array.isArray(coilsRes.data)) setCoils(coilsRes.data);
       if (custRes?.success && Array.isArray(custRes.data)) setCustomers(custRes.data);
@@ -232,19 +256,27 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
           0
         );
 
-        // 2. Check detailed warehouse balances if loaded (excluding scrap warehouse)
-        const matchingDetailedBalances = (balances || []).filter(
-          b => (b.partId === part.id || b.partCode === part.code) && b.warehouseId !== 'WH-SCRAP'
-        );
-        const warehouseStock = matchingDetailedBalances.reduce(
-          (sum, b) => sum + (part.unit === 'KG' ? b.availableKg : b.availableQty),
-          0
-        );
+        // 2. Prefer PostgreSQL's per-part aggregate; keep the detailed-row fallback during migration.
+        const matchingWarehouseSummary = partStockSummary[part.id];
+        const matchingDetailedBalances = matchingWarehouseSummary
+          ? []
+          : (balances || []).filter(
+              b => (b.partId === part.id || b.partCode === part.code) && b.warehouseId !== 'WH-SCRAP'
+            );
+        const hasWarehouseRows = matchingWarehouseSummary
+          ? matchingWarehouseSummary.rowCount > 0
+          : matchingDetailedBalances.length > 0;
+        const warehouseStock = matchingWarehouseSummary
+          ? (part.unit === 'KG' ? matchingWarehouseSummary.availableKg : matchingWarehouseSummary.availableQty)
+          : matchingDetailedBalances.reduce(
+              (sum, b) => sum + (part.unit === 'KG' ? b.availableKg : b.availableQty),
+              0
+            );
 
         // Use detailed warehouse stock if tracked there, otherwise stage stock
-        const currentStock = matchingDetailedBalances.length > 0 ? warehouseStock : stageStock;
+        const currentStock = hasWarehouseRows ? warehouseStock : stageStock;
 
-        const locationsSet = new Set<string>();
+        const locationsSet = new Set<string>(matchingWarehouseSummary?.locationsSummary || []);
         matchingDetailedBalances.forEach(b => {
           if (b.availableQty > 0 || b.availableKg > 0) locationsSet.add(b.warehouseName);
         });
@@ -269,7 +301,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
       })
       .filter(item => item.currentStock < item.reorderPoint)
       .sort((a, b) => a.coveragePercent - b.coveragePercent || b.shortageAmount - a.shortageAmount);
-  }, [parts, stageBalances, balances]);
+  }, [parts, stageBalances, balances, partStockSummary]);
 
   const filteredReorderAlerts = useMemo(() => {
     return reorderAlerts.filter(item => {
@@ -826,6 +858,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
           contracts={contracts}
           warehouses={warehouses}
           balances={balances}
+          warehouseStockSummary={warehouseStockSummary}
           loading={loading}
           onRefresh={loadInventoryData}
           onOpenReceipt={() => setIsReceiptOpen(true)}
