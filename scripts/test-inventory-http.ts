@@ -168,6 +168,18 @@ async function main() {
       'Stock inquiry must filter by physical coil thickness and preserve the mapped thickness.'
     );
     console.log('PASS: Stock inquiry thickness filter.');
+    const csvExportResponse = await fetch(`${baseUrl}/api/inventory/stock-inquiry/export?search=${encodeURIComponent(nonce)}`);
+    const csvExportBody = await csvExportResponse.text();
+    assert(
+      csvExportResponse.status === 200 &&
+        csvExportResponse.headers.get('content-type')?.includes('text/csv') &&
+        csvExportResponse.headers.get('x-exported-row-count') === '1' &&
+        csvExportBody.includes(`${nonce}-PACK`) &&
+        csvExportBody.includes(appPart.code),
+      `Filtered stock CSV must stream all matching PostgreSQL rows with a verifiable count: ${csvExportResponse.status}, ${csvExportResponse.headers.get('x-exported-row-count')}, ${csvExportBody.slice(0, 500)}`
+    );
+    console.log('PASS: Server-side CSV export streams the complete filtered stock inquiry.');
+
 
     const pagedReceipt = await requestJson(baseUrl, `/api/inventory/stock-inquiry?search=${encodeURIComponent(nonce)}&page=1&limit=1`);
     assert(
