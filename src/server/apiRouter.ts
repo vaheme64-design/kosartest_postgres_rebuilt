@@ -2915,6 +2915,7 @@ apiRouter.get('/inventory/stock-inquiry/warehouse-summary', async (req: Request,
       where,
       select: {
         warehouseId: true,
+        quantityOnHand: true,
         quantityAvailable: true,
         weightKgOnHand: true,
         weightKgAvailable: true,
@@ -2932,7 +2933,7 @@ apiRouter.get('/inventory/stock-inquiry/warehouse-summary', async (req: Request,
         warehouseName: row.warehouse?.name || row.warehouseId,
         physicalKg: 0,
         availableKg: 0,
-        availablePcs: 0,
+        physicalPcs: 0,
         rowCount: 0,
         lots: new Set<string>(),
       };
@@ -2941,7 +2942,7 @@ apiRouter.get('/inventory/stock-inquiry/warehouse-summary', async (req: Request,
       const availableQty = isAvailable ? Number(row.quantityAvailable || 0) : 0;
       entry.physicalKg += Number(row.weightKgOnHand || 0);
       entry.availableKg += availableKg;
-      if (row.part?.unit?.code === 'PCS') entry.availablePcs += availableQty;
+      if (row.part?.unit?.code === 'PCS') entry.physicalPcs += Number(row.quantityOnHand || 0);
       entry.rowCount += 1;
       const lotNumber = row.materialLot?.lotNumber || row.physicalCoil?.coilId;
       if (lotNumber) entry.lots.add(lotNumber);
@@ -2952,7 +2953,7 @@ apiRouter.get('/inventory/stock-inquiry/warehouse-summary', async (req: Request,
       warehouseName: entry.warehouseName,
       physicalKg: entry.physicalKg,
       availableKg: entry.availableKg,
-      availablePcs: entry.availablePcs,
+      physicalPcs: entry.physicalPcs,
       rowCount: entry.rowCount,
       lotsCount: entry.lots.size,
     }));
