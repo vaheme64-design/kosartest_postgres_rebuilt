@@ -246,6 +246,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [selectedOwnershipFilter, setSelectedOwnershipFilter] = useState<'ALL' | StockOwnership>('ALL');
   const [selectedGradeFilter, setSelectedGradeFilter] = useState('ALL');
   const [selectedThicknessFilter, setSelectedThicknessFilter] = useState('ALL');
+  const [selectedCoilPackFilter, setSelectedCoilPackFilter] = useState('ALL');
   const [selectedContractFilter, setSelectedContractFilter] = useState('ALL');
   const [selectedLotFilter, setSelectedLotFilter] = useState('ALL');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
@@ -334,6 +335,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     if (selectedOwnershipFilter !== 'ALL') filterParams.set('ownership', selectedOwnershipFilter);
     if (selectedGradeFilter !== 'ALL') filterParams.set('materialGrade', selectedGradeFilter);
     if (selectedThicknessFilter !== 'ALL') filterParams.set('thicknessMm', selectedThicknessFilter);
+    if (selectedCoilPackFilter !== 'ALL') filterParams.set('coilPackNumber', selectedCoilPackFilter);
     if (selectedContractFilter !== 'ALL') filterParams.set('contractNumber', selectedContractFilter);
     if (selectedLotFilter !== 'ALL') filterParams.set('lotNumber', selectedLotFilter);
     if (searchTerm.trim()) filterParams.set('search', searchTerm.trim());
@@ -396,7 +398,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   }, [
     currentPage, pageSize, sortField, sortAsc, searchTerm, selectedPartFilter,
     selectedWarehouseFilter, selectedOwnershipFilter, selectedGradeFilter,
-    selectedThicknessFilter, selectedContractFilter, selectedLotFilter, onlyAvailable,
+    selectedThicknessFilter, selectedCoilPackFilter, selectedContractFilter, selectedLotFilter, onlyAvailable,
     rawBalances, inquiryRefreshToken,
   ]);
 
@@ -462,6 +464,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
         if (selectedOwnershipFilter !== 'ALL' && item.ownership !== selectedOwnershipFilter) return false;
         if (selectedGradeFilter !== 'ALL' && item.materialGrade !== selectedGradeFilter) return false;
         if (selectedThicknessFilter !== 'ALL' && String(item.thicknessMm ?? '') !== selectedThicknessFilter) return false;
+        if (selectedCoilPackFilter !== 'ALL' && item.coilPackNumber !== selectedCoilPackFilter) return false;
         if (selectedContractFilter !== 'ALL' && item.contractNumber !== selectedContractFilter) return false;
         if (selectedLotFilter !== 'ALL' && item.lotNumber !== selectedLotFilter) return false;
         if (onlyAvailable && item.availableQty <= 0) return false;
@@ -504,6 +507,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     selectedOwnershipFilter,
     selectedGradeFilter,
     selectedThicknessFilter,
+    selectedCoilPackFilter,
     selectedContractFilter,
     selectedLotFilter,
     onlyAvailable,
@@ -520,6 +524,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     selectedOwnershipFilter,
     selectedGradeFilter,
     selectedThicknessFilter,
+    selectedCoilPackFilter,
     selectedContractFilter,
     selectedLotFilter,
     onlyAvailable,
@@ -1421,7 +1426,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
 
       {/* Filter & Grouping Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 shadow-2xs">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           {/* Search */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
@@ -1482,13 +1487,25 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
             ))}
           </select>
 
-          {/* Dynamic Coil Pack Filter */}
+          {/* Physical Coil Pack Filter */}
+          <select
+            value={selectedCoilPackFilter}
+            onChange={e => setSelectedCoilPackFilter(e.target.value)}
+            className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:bg-white focus:border-slate-900"
+          >
+            <option value="ALL">همه شماره‌های کویل‌پک</option>
+            {(serverFacets?.coilPackNumbers || []).map(pack => (
+              <option key={pack} value={pack}>{pack}</option>
+            ))}
+          </select>
+
+          {/* Material Lot / Coil ID Filter */}
           <select
             value={selectedLotFilter}
             onChange={e => setSelectedLotFilter(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:bg-white focus:border-slate-900"
           >
-            <option value="ALL">همه کویل‌پک‌ها و بچ‌ها ({toPersianDigits(matchingPacksOrLots.length)})</option>
+            <option value="ALL">همه شماره‌های بچ / رول ({toPersianDigits(matchingPacksOrLots.length)})</option>
             {matchingPacksOrLots.map(lot => (
               <option key={lot} value={lot}>
                 {lot}
@@ -1562,7 +1579,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
         {matchingPacksOrLots.length > 0 &&
           (selectedPartFilter !== 'ALL' || selectedGradeFilter !== 'ALL' || selectedThicknessFilter !== 'ALL' || selectedContractFilter !== 'ALL') && (
             <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-slate-100 text-[11px]">
-              <span className="text-slate-500 font-medium">کویل‌پک‌های موجود برای این فیلتر (کلیک جهت انتخاب):</span>
+              <span className="text-slate-500 font-medium">شماره‌های بچ / رول موجود برای این فیلتر (کلیک جهت انتخاب):</span>
               {matchingPacksOrLots.map(lot => (
                 <button
                   key={lot}
