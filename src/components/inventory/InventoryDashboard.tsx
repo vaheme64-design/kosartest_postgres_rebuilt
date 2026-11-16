@@ -32,6 +32,7 @@ interface InventoryDashboardProps {
   contracts: SapcoContract[];
   warehouses: WarehouseDefinition[];
   balances: DetailedStockBalance[];
+  warehouseStockSummary: Record<string, { physicalKg: number; physicalPcs: number; lotsCount: number; rowCount: number }>;
   loading: boolean;
   onRefresh: () => Promise<void>;
   onOpenReceipt: () => void;
@@ -49,6 +50,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
   contracts,
   warehouses,
   balances,
+  warehouseStockSummary,
   loading,
   onRefresh,
   onOpenReceipt,
@@ -238,10 +240,11 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {warehouses.map(wh => {
-              const whBalances = balances.filter(b => b.warehouseId === wh.id);
-              const totalKg = whBalances.reduce((sum, b) => sum + b.physicalKg, 0);
-              const totalPcs = whBalances.reduce((sum, b) => (b.unit === 'PCS' ? sum + b.physicalQty : sum), 0);
-              const lotsCount = new Set(whBalances.map(b => b.lotNumber).filter(Boolean)).size;
+              const summary = warehouseStockSummary[wh.id];
+              const whBalances = summary ? [] : balances.filter(b => b.warehouseId === wh.id);
+              const totalKg = summary?.physicalKg ?? whBalances.reduce((sum, b) => sum + b.physicalKg, 0);
+              const totalPcs = summary?.physicalPcs ?? whBalances.reduce((sum, b) => (b.unit === 'PCS' ? sum + b.physicalQty : sum), 0);
+              const lotsCount = summary?.lotsCount ?? new Set(whBalances.map(b => b.lotNumber).filter(Boolean)).size;
 
               return (
                 <div
