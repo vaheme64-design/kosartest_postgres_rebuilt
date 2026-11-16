@@ -2900,6 +2900,131 @@ apiRouter.get('/inventory/stock-inquiry/summary', async (req: Request, res: Resp
   }
 });
 
+/** Complete-result grouped stock inquiry. Group totals are calculated on the server from the same PostgreSQL predicate as the list and export. */
+apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Response) => {
+  try {
+    if (!isDatabaseUrlConfigured()) {
+      return res.status(503).json({ success: false, error: 'گزارش گروهی موجودی فقط از PostgreSQL قابل ارائه است.' });
+    }
+    const prisma = getPrismaClient();
+    let where: any;
+    let queryValue: (key: string) => string | undefined;
+    try {
+      ({ where, queryValue } = buildStockInquiryWhere(req.query));
+    } catch (filterError) {
+      return res.status(400).json({ success: false, error: filterError instanceof Error ? filterError.message : 'فیلتر گزارش گروهی معتبر نیست.' });
+    }
+
+    const groupBy = queryValue('groupBy');
+    const supportedGroups = ['PART', 'WAREHOUSE', 'OWNERSHIP', 'CONTRACT', 'COIL_PACK', 'GRADE', 'THICKNESS'];
+    if (!groupBy || !supportedGroups.includes(groupBy)) {
+      return res.status(400).json({ success: false, error: 'نوع گروه‌بندی معتبر نیست.' });
+    }
+
+    const rows = await prisma.stockBalance.findMany({
+      where,
+      select: {
+        id: true,
+        partId: true,
+        warehouseId: true,
+        ownership: true,
+        contractNumber: true,
+        quantityOnHand: true,
+        quantityAvailable: true,
+        quantityReserved: true,
+        weightKgOnHand: true,
+        weightKgAvailable: true,
+        weightKgReserved: true,
+        qualityStatus: true,
+        part: { select: { name: true, partNumber: true, thicknessMm: true, material: { select: { grade: true } } } },
+        warehouse: { select: { name: true } },
+        materialLot: { select: { lotNumber: true } },
+        physicalCoil: { select: { coilId: true, coilPackNumber: true, thicknessMm: true } },
+      },
+    });
+
+    const groups = new Map<string, {
+      groupKey: string; groupTitle: string; rowCount: number; coilsCount: number;
+      totalPhysicalKg: number; totalAvailableKg: number; totalPhysicalQty: number;
+      totalAvailableQty: number; totalReservedQty: number;
+    }>();
+    for (const row of rows as any[]) {
+      const ownership = row.ownership || 'COMPANY_OWNED';
+      const lotNumber = row.materialLot?.lotNumber || row.physicalCoil?.coilId;
+      let key = 'نامشخص';
+      let title = 'نامشخص';
+      switch (groupBy) {
+        case 'PART':
+          key = row.partId;
+          title = `${row.part.name} (${row.part.partNumber})`;
+          break;
+        case 'WAREHOUSE':
+          key = row.warehouseId;
+          title = row.warehouse.name;
+          break;
+        case 'OWNERSHIP':
+          key = ownership;
+          title = ownership === 'SAPCO_SUPPLIER_OWNED' ? 'ورق و اقلام امانی ساپکو' : 'مالکیت شرکت کوثر';
+          break;
+        case 'CONTRACT':
+          key = row.contractNumber || 'FREE';
+          title = row.contractNumber ? `قرارداد شماره ${row.contractNumber}` : 'آزاد / بدون قرارداد مشخص';
+          break;
+        case 'COIL_PACK': {
+          const pack = row.physicalCoil?.coilPackNumber || lotNumber;
+          key = pack || 'NO_LOT';
+          title = pack ? `کویل‌پک / بچ: ${pack}` : 'بدون شماره کویل‌پک';
+          break;
+        }
+        case 'GRADE':
+          key = row.part.material?.grade || 'OTHER';
+          title = row.part.material?.grade ? `جنس / گرید ورق: ${row.part.material.grade}` : 'سایر اقلام (پیچ، مهره، لاستیک و قطعات)';
+          break;
+        case 'THICKNESS': {
+          const thickness = row.part.thicknessMm == null ? undefined : Number(row.part.thicknessMm);
+          key = thickness ? String(thickness) : 'NO_THICK';
+          title = thickness ? `ضخامت ورق: ${thickness} میلی‌متر` : 'اقلام غیرورق (بدون ضخامت)';
+          break;
+        }
+      }
+      const current = groups.get(key) || {
+        groupKey: key, groupTitle: title, rowCount: 0, coilsCount: 0,
+        totalPhysicalKg: 0, totalAvailableKg: 0, totalPhysicalQty: 0,
+        totalAvailableQty: 0, totalReservedQty: 0,
+      };
+      const physicalQty = Number(row.quantityOnHand || 0);
+      const physicalKg = Number(row.weightKgOnHand || 0);
+      const availableQty = row.qualityStatus === 'AVAILABLE'
+        ? Number(row.quantityAvailable ?? Math.max(0, physicalQty - Number(row.quantityReserved || 0))) : 0;
+      const availableKg = row.qualityStatus === 'AVAILABLE'
+        ? Number(row.weightKgAvailable ?? Math.max(0, physicalKg - Number(row.weightKgReserved || 0))) : 0;
+      current.rowCount += 1;
+      if (lotNumber) current.coilsCount += 1;
+      current.totalPhysicalKg += physicalKg;
+      current.totalAvailableKg += availableKg;
+      current.totalPhysicalQty += physicalQty;
+      current.totalAvailableQty += availableQty;
+      current.totalReservedQty += Number(row.quantityReserved || 0);
+      groups.set(key, current);
+    }
+
+    const data = Array.from(groups.values()).sort((a, b) => b.totalPhysicalKg - a.totalPhysicalKg);
+    return res.json({
+      success: true,
+      source: 'POSTGRESQL_STOCK_BALANCE_GROUPS',
+      groupBy,
+      totalGroups: data.length,
+      totalRows: rows.length,
+      data,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'خطا در محاسبه گروه‌بندی موجودی',
+    });
+  }
+});
+
 /** Export the complete filtered stock inquiry directly from PostgreSQL as CSV. */
 apiRouter.get('/inventory/stock-inquiry/export', async (req: Request, res: Response) => {
   try {
