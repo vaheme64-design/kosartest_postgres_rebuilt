@@ -28,7 +28,6 @@ import {
   Part,
   WarehouseDefinition,
   StockOwnership,
-  InventoryDocument,
 } from '../../types/inventory';
 import {
   formatNumber,
@@ -256,8 +255,25 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [onlyBelowReorderPoint, setOnlyBelowReorderPoint] = useState(false);
   const [selectedCardexPartId, setSelectedCardexPartId] = useState<string>('');
   const [partSearchQuery, setPartSearchQuery] = useState<string>('');
-  const [allDocuments, setAllDocuments] = useState<InventoryDocument[]>([]);
+  const [cardexRows, setCardexRows] = useState<Array<{
+    id: string;
+    docId: string;
+    docNumber: string;
+    docDate: string;
+    docType: string;
+    warehouseName: string;
+    lotNumber: string;
+    contractNumber: string;
+    referenceNumber: string;
+    inQty: number;
+    outQty: number;
+    unit: string;
+    runningBalance: number;
+    runningBalanceKg: number;
+    notes: string;
+  }>>([]);
   const [docsLoading, setDocsLoading] = useState<boolean>(false);
+  const [cardexError, setCardexError] = useState('');
 
   // Grouping & Expandable Details
   const [groupBy, setGroupBy] = useState<StockGroupingKey>('NONE');
@@ -265,27 +281,46 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [savedViewNotice, setSavedViewNotice] = useState(false);
 
-  // Fetch inventory documents for Cardex calculation
-  useEffect(() => {
-    setDocsLoading(true);
-    fetch('/api/inventory/documents?limit=500')
-      .then(r => r.json())
-      .then(res => {
-        if (res.success && Array.isArray(res.data)) {
-          setAllDocuments(res.data);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setDocsLoading(false));
-  }, [balances]);
-
-  // Select default part for Cardex
+  // Select a default Cardex part once the catalog is available.
   useEffect(() => {
     if (!selectedCardexPartId && parts.length > 0) {
       const partWithStock = parts.find(p => balances.some(b => b.partId === p.id || b.partCode === p.code));
       setSelectedCardexPartId((partWithStock || parts[0]).id);
     }
   }, [parts, balances, selectedCardexPartId]);
+
+  // Load only the selected part's immutable PostgreSQL ledger; never download every inventory document.
+  useEffect(() => {
+    const selectedPart = parts.find(p => p.id === selectedCardexPartId || p.code === selectedCardexPartId);
+    if (!selectedPart) {
+      setCardexRows([]);
+      setCardexError('');
+      setDocsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams({ partCode: selectedPart.code });
+    if (selectedPart.id) params.set('partId', selectedPart.id);
+    setDocsLoading(true);
+    setCardexError('');
+    fetch(`/api/inventory/stock-inquiry/cardex?${params.toString()}`, { signal: controller.signal })
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+          throw new Error(result?.error || 'دریافت کاردکس کالا ناموفق بود.');
+        }
+        setCardexRows(result.data);
+      })
+      .catch(error => {
+        if (error?.name === 'AbortError') return;
+        setCardexRows([]);
+        setCardexError(error instanceof Error ? error.message : 'خطا در دریافت کاردکس کالا');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDocsLoading(false);
+      });
+    return () => controller.abort();
+  }, [parts, selectedCardexPartId]);
 
   // Saved Column Preferences
   const [visibleCols, setVisibleCols] = useState<typeof DEFAULT_VISIBLE_COLUMNS>(() => {
@@ -734,82 +769,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
       c => c.part.id === selectedCardexPartId || c.part.code === selectedCardexPartId
     ) || catalogPartsWithStock[0];
 
-  // Compute chronological Cardex (ورود، خروج و مانده لحظه‌ای) for the selected part
-  const selectedPartCardexRows = useMemo(() => {
-    if (!activeCardexPartSummary) return [];
-    const targetPart = activeCardexPartSummary.part;
-
-    const matchingTx: Array<{
-      id: string;
-      docId: string;
-      docNumber: string;
-      docDate: string;
-      docType: string;
-      warehouseName: string;
-      lotNumber: string;
-      contractNumber: string;
-      referenceNumber: string;
-      inQty: number;
-      outQty: number;
-      unit: string;
-      notes: string;
-    }> = [];
-
-    // Sort documents ascending by date to compute running balance accurately
-    const sortedDocs = [...allDocuments]
-      .filter(d => d.postingStatus === 'POSTED')
-      .sort((a, b) => new Date(a.documentDate).getTime() - new Date(b.documentDate).getTime());
-
-    for (const doc of sortedDocs) {
-      for (const line of doc.lines || []) {
-        if (line.partId !== targetPart.id && line.partCode !== targetPart.code) continue;
-        const qty = Number(line.quantity) || 0;
-        const docTypeStr = String(doc.documentType);
-        const isReceipt =
-          docTypeStr === 'OPENING_BALANCE' ||
-          docTypeStr === 'RECEIPT_RAW_MATERIAL' ||
-          docTypeStr === 'RECEIPT_FINISHED_GOODS' ||
-          docTypeStr === 'PRODUCTION_RECEIPT' ||
-          docTypeStr === 'RETURN_FROM_PRODUCTION';
-
-        const isIssue =
-          docTypeStr === 'ISSUE_RAW_MATERIAL' ||
-          docTypeStr === 'ISSUE_FINISHED_GOODS' ||
-          docTypeStr === 'DELIVERY_CUSTOMER' ||
-          docTypeStr === 'SHIPMENT_CUSTOMER' ||
-          docTypeStr === 'ISSUE_TO_PRODUCTION' ||
-          docTypeStr === 'DELIVERY_TO_CUSTOMER';
-
-        matchingTx.push({
-          id: `${doc.id}-${line.id || line.lineNumber}`,
-          docId: doc.id,
-          docNumber: doc.documentNumber,
-          docDate: doc.documentDate,
-          docType: doc.documentType,
-          warehouseName: doc.warehouseName,
-          lotNumber: line.lotNumber || 'عمومی',
-          contractNumber: line.contractNumber || doc.contractNumber || 'آزاد',
-          referenceNumber: doc.referenceNumber || '—',
-          inQty: isReceipt ? qty : 0,
-          outQty: isIssue ? qty : 0,
-          unit: line.unit || targetPart.unit,
-          notes: line.notes || doc.auditNote || '',
-        });
-      }
-    }
-
-    let runningBalance = 0;
-    const withRunning = matchingTx.map(tx => {
-      runningBalance = Math.max(0, Number((runningBalance + tx.inQty - tx.outQty).toFixed(3)));
-      return {
-        ...tx,
-        runningBalance,
-      };
-    });
-
-    // Return newest first for display
-    return withRunning.reverse();
-  }, [activeCardexPartSummary, allDocuments]);
+  // Cardex rows are returned in reverse chronology with running balances computed by the PostgreSQL ledger.
+  const selectedPartCardexRows = cardexRows;
 
   const getDocTypeBadge = (docType: string) => {
     switch (docType) {
@@ -1240,6 +1201,10 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                   {docsLoading ? (
                     <div className="py-8 text-center text-xs text-slate-500">
                       در حال بارگذاری کاردکس گردش کالا...
+                    </div>
+                  ) : cardexError ? (
+                    <div className="py-8 text-center text-xs text-rose-700 bg-rose-50 rounded-xl border border-rose-200">
+                      {cardexError}
                     </div>
                   ) : selectedPartCardexRows.length === 0 ? (
                     <div className="py-8 text-center text-xs text-slate-500 bg-slate-50 rounded-xl border border-slate-200">
