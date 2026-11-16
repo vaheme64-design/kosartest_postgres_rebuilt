@@ -184,6 +184,29 @@ async function main() {
     );
     console.log('PASS: Stock inquiry facets return coil-pack and thickness values independent of table pagination.');
 
+    const warehouseSummary = await requestJson(baseUrl, `/api/inventory/stock-inquiry/warehouse-summary?search=${encodeURIComponent(nonce)}`);
+    const warehouseSummaryRow = warehouseSummary.payload.data?.find((row: any) => row.warehouseId === warehouse.id);
+    assert(
+      warehouseSummary.response.status === 200 &&
+        warehouseSummary.payload.success === true &&
+        Number(warehouseSummaryRow?.physicalKg) === 100 &&
+        Number(warehouseSummaryRow?.lotsCount) === 1,
+      `Warehouse summary must aggregate the full filtered stock once per warehouse: ${JSON.stringify(warehouseSummary.payload)}`
+    );
+    console.log('PASS: Warehouse summary aggregates physical stock and distinct lot count.');
+
+    const partSummary = await requestJson(baseUrl, `/api/inventory/stock-inquiry/part-summary?search=${encodeURIComponent(nonce)}`);
+    const partSummaryRow = partSummary.payload.data?.find((row: any) => row.partId === dbPart.id);
+    assert(
+      partSummary.response.status === 200 &&
+        partSummary.payload.success === true &&
+        Number(partSummaryRow?.rowCount) === 1 &&
+        Number(partSummaryRow?.availableKg) === 100 &&
+        partSummaryRow?.locationsSummary?.includes(warehouse.name),
+      `Part summary must return available stock and locations for reorder calculations: ${JSON.stringify(partSummary.payload)}`
+    );
+    console.log('PASS: Part summary returns complete available stock and warehouse locations.');
+
     const invalidSummaryFilter = await requestJson(baseUrl, '/api/inventory/stock-inquiry/summary?thicknessMm=0');
     assert(invalidSummaryFilter.response.status === 400 && invalidSummaryFilter.payload.success === false, 'Stock inquiry summary must reject invalid shared filters.');
     console.log('PASS: Stock inquiry summary validates filters with the same rules as the list.');
