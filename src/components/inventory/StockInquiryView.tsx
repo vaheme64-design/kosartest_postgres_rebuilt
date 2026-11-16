@@ -474,6 +474,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
           const matchesName = item.partName.toLowerCase().includes(q);
           const matchesCode = item.partCode.toLowerCase().includes(q);
           const matchesLot = item.lotNumber ? item.lotNumber.toLowerCase().includes(q) : false;
+          const matchesCoilPack = item.coilPackNumber ? item.coilPackNumber.toLowerCase().includes(q) : false;
           const matchesHeat = item.heatNumber ? item.heatNumber.toLowerCase().includes(q) : false;
           const matchesContract = item.contractNumber ? item.contractNumber.toLowerCase().includes(q) : false;
           const matchesGrade = item.materialGrade ? item.materialGrade.toLowerCase().includes(q) : false;
@@ -482,6 +483,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
             !matchesName &&
             !matchesCode &&
             !matchesLot &&
+            !matchesCoilPack &&
             !matchesHeat &&
             !matchesContract &&
             !matchesGrade &&
