@@ -2916,6 +2916,7 @@ apiRouter.get('/inventory/stock-inquiry/warehouse-summary', async (req: Request,
       select: {
         warehouseId: true,
         quantityAvailable: true,
+        weightKgOnHand: true,
         weightKgAvailable: true,
         qualityStatus: true,
         part: { select: { unit: { select: { code: true } } } },
@@ -2938,7 +2939,7 @@ apiRouter.get('/inventory/stock-inquiry/warehouse-summary', async (req: Request,
       const isAvailable = row.qualityStatus === 'AVAILABLE';
       const availableKg = isAvailable ? Number(row.weightKgAvailable || 0) : 0;
       const availableQty = isAvailable ? Number(row.quantityAvailable || 0) : 0;
-      entry.physicalKg += Number(row.weightKgAvailable || 0) + (isAvailable ? 0 : Number(row.weightKgOnHand || 0));
+      entry.physicalKg += Number(row.weightKgOnHand || 0);
       entry.availableKg += availableKg;
       if (row.part?.unit?.code === 'PCS') entry.availablePcs += availableQty;
       entry.rowCount += 1;
