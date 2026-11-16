@@ -367,7 +367,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [sortAsc, setSortAsc] = useState(false);
 
   // The list, global aggregates and filter facets are read from PostgreSQL.
-  // Keep the parent-provided full balance collection for Cardex, reorder context and legacy grouped/export flows.
+  // Keep the parent-provided full balance collection for Cardex, reorder context and grouped detail rows during this migration stage.
   useEffect(() => {
     const controller = new AbortController();
     const filterParams = new URLSearchParams();
@@ -1600,7 +1600,6 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
             </div>
           )}
 
-        <div className="space-y-3">
           {groupedData.map(group => (
             <div key={group.groupKey} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
               <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
