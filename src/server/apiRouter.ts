@@ -2938,7 +2938,12 @@ apiRouter.get('/inventory/stock-inquiry/cardex', async (req: Request, res: Respo
       const weightKgSigned = Number(tx.weightKgSigned || 0);
       runningBalance = Number((runningBalance + quantitySigned).toFixed(3));
       runningBalanceKg = Number((runningBalanceKg + weightKgSigned).toFixed(3));
-      const docType = tx.document?.documentType || tx.transactionType;
+      const docType =
+        tx.transactionType === 'INBOUND' || tx.transactionType === 'TRANSFER_IN' || tx.transactionType === 'ADJUSTMENT_POS'
+          ? 'RECEIPT_RAW_MATERIAL'
+          : tx.transactionType === 'OUTBOUND' || tx.transactionType === 'TRANSFER_OUT' || tx.transactionType === 'ADJUSTMENT_NEG'
+            ? 'ISSUE_RAW_MATERIAL'
+            : tx.document?.documentType || tx.transactionType;
       return {
         id: tx.id,
         transactionNumber: tx.transactionNumber,
@@ -2959,7 +2964,7 @@ apiRouter.get('/inventory/stock-inquiry/cardex', async (req: Request, res: Respo
         unit: tx.unit?.code || part.unit.code,
         inKg: Math.max(0, weightKgSigned),
         outKg: Math.max(0, -weightKgSigned),
-        runningBalance,
+        runningBalance: part.unit.code === 'KG' ? runningBalanceKg : runningBalance,
         runningBalanceKg,
         notes: tx.document?.notes || '',
       };
