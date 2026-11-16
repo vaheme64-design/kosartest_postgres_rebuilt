@@ -300,13 +300,104 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 15;
+  const [serverPageBalances, setServerPageBalances] = useState<DetailedStockBalance[]>([]);
+  const [serverTotalCount, setServerTotalCount] = useState(0);
+  const [serverTotalPages, setServerTotalPages] = useState(1);
+  const [serverInquiryLoading, setServerInquiryLoading] = useState(false);
+  const [serverInquiryError, setServerInquiryError] = useState('');
+  const [serverSummary, setServerSummary] = useState<{
+    physicalKg: number;
+    availableKg: number;
+    reservedKg: number;
+    sapcoOwnedKg: number;
+  } | null>(null);
+  const [serverFacets, setServerFacets] = useState<{
+    contractNumbers: string[];
+    lotNumbers: string[];
+    coilPackNumbers: string[];
+    materialGrades: string[];
+    thicknesses: number[];
+  } | null>(null);
 
   // Sorting
   const [sortField, setSortField] = useState<keyof DetailedStockBalance>('availableQty');
   const [sortAsc, setSortAsc] = useState(false);
 
+  // The list, global aggregates and filter facets are read from PostgreSQL.
+  // Keep the parent-provided full balance collection for Cardex, reorder context and legacy grouped/export flows.
+  useEffect(() => {
+    const controller = new AbortController();
+    const filterParams = new URLSearchParams();
+    if (selectedPartFilter !== 'ALL') filterParams.set('partId', selectedPartFilter);
+    if (selectedWarehouseFilter !== 'ALL') filterParams.set('warehouseId', selectedWarehouseFilter);
+    if (selectedOwnershipFilter !== 'ALL') filterParams.set('ownership', selectedOwnershipFilter);
+    if (selectedGradeFilter !== 'ALL') filterParams.set('materialGrade', selectedGradeFilter);
+    if (selectedThicknessFilter !== 'ALL') filterParams.set('thicknessMm', selectedThicknessFilter);
+    if (selectedContractFilter !== 'ALL') filterParams.set('contractNumber', selectedContractFilter);
+    if (selectedLotFilter !== 'ALL') filterParams.set('lotNumber', selectedLotFilter);
+    if (searchTerm.trim()) filterParams.set('search', searchTerm.trim());
+    if (onlyAvailable) filterParams.set('onlyAvailable', 'true');
+
+    const listParams = new URLSearchParams(filterParams);
+    listParams.set('page', String(currentPage));
+    listParams.set('limit', String(pageSize));
+    listParams.set('sortBy', String(sortField));
+    listParams.set('sortOrder', sortAsc ? 'asc' : 'desc');
+
+    setServerInquiryLoading(true);
+    setServerInquiryError('');
+    Promise.all([
+      fetch(`/api/inventory/stock-inquiry?${listParams.toString()}`, { signal: controller.signal }).then(r => r.json()),
+      fetch(`/api/inventory/stock-inquiry/summary?${filterParams.toString()}`, { signal: controller.signal }).then(r => r.json()),
+      fetch(`/api/inventory/stock-inquiry/facets?${filterParams.toString()}`, { signal: controller.signal }).then(r => r.json()),
+    ])
+      .then(([listResult, summaryResult, facetsResult]) => {
+        if (!listResult?.success || !Array.isArray(listResult.data)) {
+          throw new Error(listResult?.error || 'دریافت صفحه موجودی از PostgreSQL ناموفق بود.');
+        }
+        setServerPageBalances(listResult.data);
+        setServerTotalCount(Number(listResult.total || 0));
+        setServerTotalPages(Math.max(1, Number(listResult.totalPages || 1)));
+        if (summaryResult?.success && summaryResult.data) {
+          setServerSummary({
+            physicalKg: Number(summaryResult.data.physicalKg || 0),
+            availableKg: Number(summaryResult.data.availableKg || 0),
+            reservedKg: Number(summaryResult.data.reservedKg || 0),
+            sapcoOwnedKg: Number(summaryResult.data.sapcoOwnedKg || 0),
+          });
+        }
+        if (facetsResult?.success && facetsResult.data) {
+          setServerFacets({
+            contractNumbers: Array.isArray(facetsResult.data.contractNumbers) ? facetsResult.data.contractNumbers : [],
+            lotNumbers: Array.isArray(facetsResult.data.lotNumbers) ? facetsResult.data.lotNumbers : [],
+            coilPackNumbers: Array.isArray(facetsResult.data.coilPackNumbers) ? facetsResult.data.coilPackNumbers : [],
+            materialGrades: Array.isArray(facetsResult.data.materialGrades) ? facetsResult.data.materialGrades : [],
+            thicknesses: Array.isArray(facetsResult.data.thicknesses) ? facetsResult.data.thicknesses.map(Number) : [],
+          });
+        }
+      })
+      .catch(error => {
+        if (error instanceof Error && error.name === 'AbortError') return;
+        setServerInquiryError(error instanceof Error ? error.message : 'خطا در دریافت استعلام موجودی');
+        setServerPageBalances([]);
+        setServerTotalCount(0);
+        setServerTotalPages(1);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setServerInquiryLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [
+    currentPage, pageSize, sortField, sortAsc, searchTerm, selectedPartFilter,
+    selectedWarehouseFilter, selectedOwnershipFilter, selectedGradeFilter,
+    selectedThicknessFilter, selectedContractFilter, selectedLotFilter, onlyAvailable,
+    rawBalances,
+  ]);
+
   // Unique material grades
   const grades = useMemo(() => {
+    if (serverFacets?.materialGrades.length) return serverFacets.materialGrades;
     const set = new Set<string>();
     parts.forEach(p => {
       if (p.materialGrade) set.add(p.materialGrade);
@@ -315,24 +406,26 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
       if (b.materialGrade) set.add(b.materialGrade);
     });
     return Array.from(set);
-  }, [parts, balances]);
+  }, [parts, balances, serverFacets]);
 
   // Unique sheet thicknesses available in stock and the master catalog.
   const thicknessOptions = useMemo(() => {
+    if (serverFacets?.thicknesses.length) return serverFacets.thicknesses;
     const values = new Set<number>();
     parts.forEach(p => { if (typeof p.thicknessMm === 'number' && p.thicknessMm > 0) values.add(p.thicknessMm); });
     balances.forEach(b => { if (typeof b.thicknessMm === 'number' && b.thicknessMm > 0) values.add(b.thicknessMm); });
     return Array.from(values).sort((a, b) => a - b);
-  }, [parts, balances]);
+  }, [parts, balances, serverFacets]);
 
   // Unique contracts
   const contractNumbers = useMemo(() => {
+    if (serverFacets?.contractNumbers.length) return serverFacets.contractNumbers;
     const set = new Set<string>();
     balances.forEach(b => {
       if (b.contractNumber) set.add(b.contractNumber);
     });
     return Array.from(set);
-  }, [balances]);
+  }, [balances, serverFacets]);
 
   // Unique coil-packs / lot numbers dynamically matching current part/grade
   const matchingPacksOrLots = useMemo(() => {
@@ -428,11 +521,11 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     groupBy,
   ]);
 
-  // Aggregate stats (strictly physical without duplication)
-  const totalPhysicalKg = filteredBalances.reduce((sum, b) => sum + b.physicalKg, 0);
-  const totalAvailableKg = filteredBalances.reduce((sum, b) => sum + b.availableKg, 0);
-  const totalReservedKg = filteredBalances.reduce((sum, b) => sum + b.reservedKg, 0);
-  const totalSapcoKg = filteredBalances
+  // KPI aggregates cover the complete PostgreSQL result, not only the visible page.
+  const totalPhysicalKg = serverSummary?.physicalKg ?? filteredBalances.reduce((sum, b) => sum + b.physicalKg, 0);
+  const totalAvailableKg = serverSummary?.availableKg ?? filteredBalances.reduce((sum, b) => sum + b.availableKg, 0);
+  const totalReservedKg = serverSummary?.reservedKg ?? filteredBalances.reduce((sum, b) => sum + b.reservedKg, 0);
+  const totalSapcoKg = serverSummary?.sapcoOwnedKg ?? filteredBalances
     .filter(b => b.ownership === 'SAPCO_SUPPLIER_OWNED')
     .reduce((sum, b) => sum + b.physicalKg, 0);
 
@@ -495,8 +588,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     return Array.from(map.values()).sort((a, b) => b.totalPhysicalKg - a.totalPhysicalKg);
   }, [filteredBalances, groupBy]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredBalances.length / pageSize));
-  const paginatedBalances = filteredBalances.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalPages = serverTotalPages;
+  const paginatedBalances = serverPageBalances;
 
   const handleSaveViewPreferences = () => {
     try {
