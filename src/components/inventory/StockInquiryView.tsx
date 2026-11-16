@@ -305,6 +305,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [serverTotalPages, setServerTotalPages] = useState(1);
   const [serverInquiryLoading, setServerInquiryLoading] = useState(false);
   const [serverInquiryError, setServerInquiryError] = useState('');
+  const [inquiryRefreshToken, setInquiryRefreshToken] = useState(0);
   const [serverSummary, setServerSummary] = useState<{
     physicalKg: number;
     availableKg: number;
@@ -396,7 +397,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     currentPage, pageSize, sortField, sortAsc, searchTerm, selectedPartFilter,
     selectedWarehouseFilter, selectedOwnershipFilter, selectedGradeFilter,
     selectedThicknessFilter, selectedContractFilter, selectedLotFilter, onlyAvailable,
-    rawBalances,
+    rawBalances, inquiryRefreshToken,
   ]);
 
   // Unique material grades
@@ -1384,7 +1385,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
         </span>
         {serverInquiryLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-500" />}
         {serverInquiryError && (
-          <button type="button" onClick={() => setCurrentPage(page => page)} className="text-rose-700 font-semibold">
+          <button type="button" onClick={() => setInquiryRefreshToken(token => token + 1)} className="text-rose-700 font-semibold">
             تلاش مجدد
           </button>
         )}
