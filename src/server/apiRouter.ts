@@ -2900,6 +2900,83 @@ apiRouter.get('/inventory/stock-inquiry/summary', async (req: Request, res: Resp
   }
 });
 
+/** Immutable PostgreSQL inventory ledger for one selected part (Cardex). */
+apiRouter.get('/inventory/stock-inquiry/cardex', async (req: Request, res: Response) => {
+  try {
+    if (!isDatabaseUrlConfigured()) {
+      return res.status(503).json({ success: false, error: 'کاردکس رسمی فقط از دفترکل PostgreSQL قابل ارائه است.' });
+    }
+    const partId = typeof req.query.partId === 'string' ? req.query.partId.trim() : '';
+    const partCode = typeof req.query.partCode === 'string' ? req.query.partCode.trim() : '';
+    if (!partId && !partCode) {
+      return res.status(400).json({ success: false, error: 'شناسه یا کد کالا برای دریافت کاردکس الزامی است.' });
+    }
+    const prisma = getPrismaClient();
+    const part = await prisma.part.findFirst({
+      where: { OR: [...(partId ? [{ id: partId }] : []), ...(partCode ? [{ partNumber: partCode }] : [])] },
+      select: { id: true, partNumber: true, name: true, unit: { select: { code: true } } },
+    });
+    if (!part) return res.status(404).json({ success: false, error: 'کالای موردنظر در اطلاعات پایه PostgreSQL یافت نشد.' });
+
+    const transactions = await prisma.inventoryTransaction.findMany({
+      where: { partId: part.id, postingStatus: 'POSTED' },
+      include: {
+        document: { select: { id: true, documentNumber: true, documentType: true, referenceNumber: true, notes: true, documentDate: true } },
+        warehouse: { select: { name: true, code: true } },
+        location: { select: { code: true, name: true } },
+        materialLot: { select: { lotNumber: true, heatNumber: true } },
+        physicalCoil: { select: { coilId: true, coilPackNumber: true, heatNumber: true } },
+        unit: { select: { code: true } },
+      },
+      orderBy: [{ transactionDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: 20000,
+    });
+    let runningBalance = 0;
+    let runningBalanceKg = 0;
+    const data = transactions.map((tx: any) => {
+      const quantitySigned = Number(tx.quantitySigned || 0);
+      const weightKgSigned = Number(tx.weightKgSigned || 0);
+      runningBalance = Number((runningBalance + quantitySigned).toFixed(3));
+      runningBalanceKg = Number((runningBalanceKg + weightKgSigned).toFixed(3));
+      const docType = tx.document?.documentType || tx.transactionType;
+      return {
+        id: tx.id,
+        transactionNumber: tx.transactionNumber,
+        docId: tx.document?.id || '',
+        docNumber: tx.document?.documentNumber || tx.transactionNumber,
+        docDate: tx.transactionDate.toISOString(),
+        docType,
+        transactionType: tx.transactionType,
+        warehouseName: tx.warehouse?.name || tx.warehouse?.code || '—',
+        locationCode: tx.location?.code || '',
+        lotNumber: tx.materialLot?.lotNumber || tx.physicalCoil?.coilId || 'عمومی',
+        coilPackNumber: tx.physicalCoil?.coilPackNumber || '',
+        heatNumber: tx.materialLot?.heatNumber || tx.physicalCoil?.heatNumber || '',
+        contractNumber: tx.contractNumber || 'آزاد',
+        referenceNumber: tx.document?.referenceNumber || '—',
+        inQty: Math.max(0, quantitySigned),
+        outQty: Math.max(0, -quantitySigned),
+        unit: tx.unit?.code || part.unit.code,
+        inKg: Math.max(0, weightKgSigned),
+        outKg: Math.max(0, -weightKgSigned),
+        runningBalance,
+        runningBalanceKg,
+        notes: tx.document?.notes || '',
+      };
+    });
+    res.json({
+      success: true,
+      source: 'POSTGRESQL_INVENTORY_TRANSACTION_LEDGER',
+      part: { id: part.id, code: part.partNumber, name: part.name, unit: part.unit.code },
+      total: data.length,
+      truncated: data.length === 20000,
+      data: data.reverse(),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در دریافت کاردکس PostgreSQL' });
+  }
+});
+
 /** Complete warehouse-level aggregates for inventory dashboard cards. */
 apiRouter.get('/inventory/stock-inquiry/warehouse-summary', async (req: Request, res: Response) => {
   try {
