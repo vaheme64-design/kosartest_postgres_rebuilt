@@ -276,6 +276,13 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
 
   // Grouping & Expandable Details
   const [groupBy, setGroupBy] = useState<StockGroupingKey>('NONE');
+  const [serverGroupedData, setServerGroupedData] = useState<Array<{
+    groupKey: string; groupTitle: string; rowCount: number; coilsCount: number;
+    totalPhysicalKg: number; totalAvailableKg: number; totalPhysicalQty: number;
+    totalAvailableQty: number; totalReservedQty: number;
+  }>>([]);
+  const [serverGroupedLoading, setServerGroupedLoading] = useState(false);
+  const [serverGroupedError, setServerGroupedError] = useState('');
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [savedViewNotice, setSavedViewNotice] = useState(false);
@@ -436,6 +443,54 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     rawBalances, inquiryRefreshToken,
   ]);
 
+  // Group totals are fetched from PostgreSQL for the complete filtered result.
+  useEffect(() => {
+    if (groupBy === 'NONE') {
+      setServerGroupedData([]);
+      setServerGroupedError('');
+      setServerGroupedLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    params.set('groupBy', groupBy);
+    if (selectedPartFilter !== 'ALL') params.set('partId', selectedPartFilter);
+    if (selectedWarehouseFilter !== 'ALL') params.set('warehouseId', selectedWarehouseFilter);
+    if (selectedOwnershipFilter !== 'ALL') params.set('ownership', selectedOwnershipFilter);
+    if (selectedGradeFilter !== 'ALL') params.set('materialGrade', selectedGradeFilter);
+    if (selectedThicknessFilter !== 'ALL') params.set('thicknessMm', selectedThicknessFilter);
+    if (selectedCoilPackFilter !== 'ALL') params.set('coilPackNumber', selectedCoilPackFilter);
+    if (selectedContractFilter !== 'ALL') params.set('contractNumber', selectedContractFilter);
+    if (selectedLotFilter !== 'ALL') params.set('lotNumber', selectedLotFilter);
+    if (searchTerm.trim()) params.set('search', searchTerm.trim());
+    if (onlyAvailable) params.set('onlyAvailable', 'true');
+
+    setServerGroupedLoading(true);
+    setServerGroupedError('');
+    fetch(`/api/inventory/stock-inquiry/grouped?${params.toString()}`, { signal: controller.signal })
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+          throw new Error(result?.error || 'دریافت جمع‌بندی گروهی موجودی از PostgreSQL ناموفق بود.');
+        }
+        setServerGroupedData(result.data);
+      })
+      .catch(error => {
+        if (error?.name === 'AbortError') return;
+        setServerGroupedData([]);
+        setServerGroupedError(error instanceof Error ? error.message : 'خطا در دریافت گروه‌بندی موجودی');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setServerGroupedLoading(false);
+      });
+    return () => controller.abort();
+  }, [
+    groupBy, searchTerm, selectedPartFilter, selectedWarehouseFilter,
+    selectedOwnershipFilter, selectedGradeFilter, selectedThicknessFilter,
+    selectedCoilPackFilter, selectedContractFilter, selectedLotFilter, onlyAvailable,
+    inquiryRefreshToken,
+  ]);
+
   // Unique material grades
   const grades = useMemo(() => {
     if (serverFacets?.materialGrades.length) return serverFacets.materialGrades;
@@ -575,65 +630,28 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     .filter(b => b.ownership === 'SAPCO_SUPPLIER_OWNED')
     .reduce((sum, b) => sum + b.physicalKg, 0);
 
-  // Grouped View Calculation
+  // Group headers and totals come from PostgreSQL; the existing detail rows remain available below each group.
   const groupedData = useMemo(() => {
     if (groupBy === 'NONE') return [];
-    const map = new Map<
-      string,
-      {
-        groupKey: string;
-        groupTitle: string;
-        items: DetailedStockBalance[];
-        totalPhysicalKg: number;
-        totalAvailableKg: number;
-        coilsCount: number;
-      }
-    >();
-
+    const detailGroups = new Map<string, DetailedStockBalance[]>();
     filteredBalances.forEach(item => {
       let key = 'نامشخص';
-      let title = 'نامشخص';
-      if (groupBy === 'PART') {
-        key = item.partId;
-        title = `${item.partName} (${item.partCode})`;
-      } else if (groupBy === 'WAREHOUSE') {
-        key = item.warehouseId;
-        title = item.warehouseName;
-      } else if (groupBy === 'OWNERSHIP') {
-        key = item.ownership;
-        title = item.ownership === 'SAPCO_SUPPLIER_OWNED' ? 'ورق و اقلام امانی ساپکو' : 'مالکیت شرکت کوثر';
-      } else if (groupBy === 'CONTRACT') {
-        key = item.contractNumber || 'FREE';
-        title = item.contractNumber ? `قرارداد شماره ${item.contractNumber}` : 'آزاد / بدون قرارداد مشخص';
-      } else if (groupBy === 'COIL_PACK') {
-        const coilPackOrLot = item.coilPackNumber || item.lotNumber;
-        key = coilPackOrLot || 'NO_LOT';
-        title = coilPackOrLot ? `کویل‌پک / بچ: ${coilPackOrLot}` : 'بدون شماره کویل‌پک';
-      } else if (groupBy === 'GRADE') {
-        key = item.materialGrade || 'OTHER';
-        title = item.materialGrade ? `جنس / گرید ورق: ${item.materialGrade}` : 'سایر اقلام (پیچ، مهره، لاستیک و قطعات)';
-      } else if (groupBy === 'THICKNESS') {
-        key = item.thicknessMm ? `${item.thicknessMm}` : 'NO_THICK';
-        title = item.thicknessMm ? `ضخامت ورق: ${item.thicknessMm} میلی‌متر` : 'اقلام غیرورق (بدون ضخامت)';
-      }
-
-      const existing = map.get(key) || {
-        groupKey: key,
-        groupTitle: title,
-        items: [],
-        totalPhysicalKg: 0,
-        totalAvailableKg: 0,
-        coilsCount: 0,
-      };
-      existing.items.push(item);
-      existing.totalPhysicalKg += item.physicalKg;
-      existing.totalAvailableKg += item.availableKg;
-      if (item.lotNumber) existing.coilsCount += 1;
-      map.set(key, existing);
+      if (groupBy === 'PART') key = item.partId;
+      else if (groupBy === 'WAREHOUSE') key = item.warehouseId;
+      else if (groupBy === 'OWNERSHIP') key = item.ownership;
+      else if (groupBy === 'CONTRACT') key = item.contractNumber || 'FREE';
+      else if (groupBy === 'COIL_PACK') key = item.coilPackNumber || item.lotNumber || 'NO_LOT';
+      else if (groupBy === 'GRADE') key = item.materialGrade || 'OTHER';
+      else if (groupBy === 'THICKNESS') key = item.thicknessMm ? String(item.thicknessMm) : 'NO_THICK';
+      const items = detailGroups.get(key) || [];
+      items.push(item);
+      detailGroups.set(key, items);
     });
-
-    return Array.from(map.values()).sort((a, b) => b.totalPhysicalKg - a.totalPhysicalKg);
-  }, [filteredBalances, groupBy]);
+    return serverGroupedData.map(group => ({
+      ...group,
+      items: detailGroups.get(group.groupKey) || [],
+    }));
+  }, [filteredBalances, groupBy, serverGroupedData]);
 
   const totalPages = serverTotalPages;
   const paginatedBalances = serverPageBalances;
@@ -1571,6 +1589,18 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
       {/* Grouped View OR Detailed Table View */}
       {groupBy !== 'NONE' ? (
         <div className="space-y-3">
+          {serverGroupedError && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert">
+              {serverGroupedError}
+            </div>
+          )}
+          {serverGroupedLoading && (
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+              در حال دریافت جمع‌بندی گروه‌ها از PostgreSQL...
+            </div>
+          )}
+
+        <div className="space-y-3">
           {groupedData.map(group => (
             <div key={group.groupKey} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
               <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -1578,7 +1608,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                   <Layers className="w-4 h-4 text-blue-600" />
                   <strong className="text-slate-900 text-sm">{group.groupTitle}</strong>
                   <span className="text-slate-500">
-                    ({toPersianDigits(group.items.length)} ردیف موجودی
+                    ({toPersianDigits(group.rowCount)} ردیف موجودی
                     {group.coilsCount > 0 ? ` · ${toPersianDigits(group.coilsCount)} کویل/بچ` : ''})
                   </span>
                 </div>
