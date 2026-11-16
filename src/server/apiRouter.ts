@@ -2923,7 +2923,7 @@ apiRouter.get('/inventory/stock-inquiry/cardex', async (req: Request, res: Respo
       include: {
         document: { select: { id: true, documentNumber: true, documentType: true, referenceNumber: true, notes: true, documentDate: true } },
         warehouse: { select: { name: true, code: true } },
-        location: { select: { code: true, name: true } },
+        location: { select: { aisle: true, rack: true, shelf: true, bin: true } },
         materialLot: { select: { lotNumber: true, heatNumber: true } },
         physicalCoil: { select: { coilId: true, coilPackNumber: true, heatNumber: true } },
         unit: { select: { code: true } },
@@ -2953,7 +2953,7 @@ apiRouter.get('/inventory/stock-inquiry/cardex', async (req: Request, res: Respo
         docType,
         transactionType: tx.transactionType,
         warehouseName: tx.warehouse?.name || tx.warehouse?.code || '—',
-        locationCode: tx.location?.code || '',
+        locationCode: [tx.location?.aisle, tx.location?.rack, tx.location?.shelf, tx.location?.bin].filter(Boolean).join('-'),
         lotNumber: tx.materialLot?.lotNumber || tx.physicalCoil?.coilId || 'عمومی',
         coilPackNumber: tx.physicalCoil?.coilPackNumber || '',
         heatNumber: tx.materialLot?.heatNumber || tx.physicalCoil?.heatNumber || '',
