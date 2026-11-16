@@ -2643,6 +2643,91 @@ apiRouter.post('/inventory/documents/:id/reverse', async (req: Request, res: Res
 /**
  * 16.8. Stock Inquiry by Part, Material, Warehouse, Location, Ownership & Status
  */
+/**
+ * Shared PostgreSQL predicate for stock inquiry, summary and facets.
+ * Keep every inquiry surface on the same authoritative StockBalance filter semantics.
+ */
+const buildStockInquiryWhere = (query: Request['query']): { where: any; queryValue: (key: string) => string | undefined } => {
+  const queryValue = (key: string): string | undefined => {
+    const value = query[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  };
+  const exactFilter = (value: string | undefined) => value && value !== 'ALL' ? value : undefined;
+
+  const partId = exactFilter(queryValue('partId'));
+  const materialGrade = exactFilter(queryValue('materialGrade'));
+  const warehouseId = exactFilter(queryValue('warehouseId'));
+  const locationCode = exactFilter(queryValue('locationCode'));
+  const ownership = exactFilter(queryValue('ownership'));
+  const contractNumber = exactFilter(queryValue('contractNumber'));
+  const lotNumber = exactFilter(queryValue('lotNumber'));
+  const coilPackNumber = exactFilter(queryValue('coilPackNumber'));
+  const thicknessRaw = queryValue('thicknessMm');
+  const thicknessMm = thicknessRaw === undefined ? undefined : Number(thicknessRaw);
+  if (thicknessRaw !== undefined && (!Number.isFinite(thicknessMm) || thicknessMm! <= 0)) {
+    throw new Error('ضخامت باید عددی مثبت و معتبر باشد.');
+  }
+  const search = queryValue('search');
+  const onlyAvailable = queryValue('onlyAvailable') === 'true';
+  const onlyNonZero = queryValue('onlyNonZero') === 'true';
+
+  const where: any = {};
+  if (partId) where.OR = [{ partId }, { part: { partNumber: partId } }];
+  if (materialGrade) where.part = { ...(where.part || {}), material: { grade: materialGrade } };
+  if (warehouseId) where.warehouseId = warehouseId;
+  if (locationCode) where.location = { is: { code: locationCode } };
+  if (ownership) where.ownership = ownership;
+  if (contractNumber) where.contractNumber = contractNumber;
+  if (lotNumber) {
+    where.AND = [...(where.AND || []), {
+      OR: [
+        { materialLot: { is: { lotNumber } } },
+        { physicalCoil: { is: { coilId: lotNumber } } },
+      ],
+    }];
+  }
+  if (coilPackNumber) where.physicalCoil = { is: { coilPackNumber } };
+  if (thicknessMm !== undefined) {
+    where.AND = [...(where.AND || []), {
+      OR: [
+        { part: { thicknessMm } },
+        { materialLot: { is: { thicknessMm } } },
+        { physicalCoil: { is: { thicknessMm } } },
+      ],
+    }];
+  }
+  if (search) {
+    where.AND = [...(where.AND || []), {
+      OR: [
+        { part: { name: { contains: search, mode: 'insensitive' } } },
+        { part: { partNumber: { contains: search, mode: 'insensitive' } } },
+        { part: { material: { grade: { contains: search, mode: 'insensitive' } } } },
+        { materialLot: { is: { lotNumber: { contains: search, mode: 'insensitive' } } } },
+        { materialLot: { is: { heatNumber: { contains: search, mode: 'insensitive' } } } },
+        { physicalCoil: { is: { coilId: { contains: search, mode: 'insensitive' } } } },
+        { physicalCoil: { is: { coilPackNumber: { contains: search, mode: 'insensitive' } } } },
+        { physicalCoil: { is: { heatNumber: { contains: search, mode: 'insensitive' } } } },
+        { warehouse: { name: { contains: search, mode: 'insensitive' } } },
+        { contractNumber: { contains: search, mode: 'insensitive' } },
+      ],
+    }];
+  }
+  if (onlyAvailable) {
+    where.quantityAvailable = { gt: 0 };
+    where.qualityStatus = 'AVAILABLE';
+  }
+  if (onlyNonZero) {
+    where.AND = [...(where.AND || []), {
+      OR: [
+        { quantityOnHand: { gt: 0 } },
+        { quantityReserved: { gt: 0 } },
+        { weightKgOnHand: { gt: 0 } },
+      ],
+    }];
+  }
+  return { where, queryValue };
+};
+
 apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) => {
   try {
     if (!isDatabaseUrlConfigured()) {
@@ -2650,88 +2735,12 @@ apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) =>
     }
 
     const prisma = getPrismaClient();
-    const queryValue = (key: string): string | undefined => {
-      const value = req.query[key];
-      return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-    };
-    const exactFilter = (value: string | undefined) => value && value !== 'ALL' ? value : undefined;
-
-    const partId = exactFilter(queryValue('partId'));
-    const materialGrade = exactFilter(queryValue('materialGrade'));
-    const warehouseId = exactFilter(queryValue('warehouseId'));
-    const locationCode = exactFilter(queryValue('locationCode'));
-    const ownership = exactFilter(queryValue('ownership'));
-    const contractNumber = exactFilter(queryValue('contractNumber'));
-    const lotNumber = exactFilter(queryValue('lotNumber'));
-    const coilPackNumber = exactFilter(queryValue('coilPackNumber'));
-    const thicknessRaw = queryValue('thicknessMm');
-    const thicknessMm = thicknessRaw === undefined ? undefined : Number(thicknessRaw);
-    if (thicknessRaw !== undefined && (!Number.isFinite(thicknessMm) || thicknessMm! <= 0)) {
-      return res.status(400).json({ success: false, error: 'ضخامت باید عددی مثبت و معتبر باشد.' });
-    }
-    const search = queryValue('search');
-    const onlyAvailable = queryValue('onlyAvailable') === 'true';
-    const onlyNonZero = queryValue('onlyNonZero') === 'true';
-
-    // Build the database predicate before reading rows. This keeps filtering,
-    // counting and optional pagination consistent on the authoritative ledger.
-    const where: any = {};
-    if (partId) {
-      where.OR = [{ partId }, { part: { partNumber: partId } }];
-    }
-    if (materialGrade) where.part = { ...(where.part || {}), material: { grade: materialGrade } };
-    if (warehouseId) where.warehouseId = warehouseId;
-    if (locationCode) where.location = { is: { code: locationCode } };
-    if (ownership) where.ownership = ownership;
-    if (contractNumber) where.contractNumber = contractNumber;
-    if (lotNumber) {
-      where.AND = [...(where.AND || []), {
-        OR: [
-          { materialLot: { is: { lotNumber } } },
-          { physicalCoil: { is: { coilId: lotNumber } } },
-        ],
-      }];
-    }
-    if (coilPackNumber) {
-      where.physicalCoil = { is: { coilPackNumber } };
-    }
-    if (thicknessMm !== undefined) {
-      where.AND = [...(where.AND || []), {
-        OR: [
-          { part: { thicknessMm } },
-          { materialLot: { is: { thicknessMm } } },
-          { physicalCoil: { is: { thicknessMm } } },
-        ],
-      }];
-    }
-    if (search) {
-      where.AND = [...(where.AND || []), {
-        OR: [
-          { part: { name: { contains: search, mode: 'insensitive' } } },
-          { part: { partNumber: { contains: search, mode: 'insensitive' } } },
-          { part: { material: { grade: { contains: search, mode: 'insensitive' } } } },
-          { materialLot: { is: { lotNumber: { contains: search, mode: 'insensitive' } } } },
-          { materialLot: { is: { heatNumber: { contains: search, mode: 'insensitive' } } } },
-          { physicalCoil: { is: { coilId: { contains: search, mode: 'insensitive' } } } },
-          { physicalCoil: { is: { coilPackNumber: { contains: search, mode: 'insensitive' } } } },
-          { physicalCoil: { is: { heatNumber: { contains: search, mode: 'insensitive' } } } },
-          { warehouse: { name: { contains: search, mode: 'insensitive' } } },
-          { contractNumber: { contains: search, mode: 'insensitive' } },
-        ],
-      }];
-    }
-    if (onlyAvailable) {
-      where.quantityAvailable = { gt: 0 };
-      where.qualityStatus = 'AVAILABLE';
-    }
-    if (onlyNonZero) {
-      where.AND = [...(where.AND || []), {
-        OR: [
-          { quantityOnHand: { gt: 0 } },
-          { quantityReserved: { gt: 0 } },
-          { weightKgOnHand: { gt: 0 } },
-        ],
-      }];
+    let where: any;
+    let queryValue: (key: string) => string | undefined;
+    try {
+      ({ where, queryValue } = buildStockInquiryWhere(req.query));
+    } catch (filterError) {
+      return res.status(400).json({ success: false, error: filterError instanceof Error ? filterError.message : 'فیلتر استعلام موجودی معتبر نیست.' });
     }
 
     const requestedPage = Number.parseInt(queryValue('page') || '', 10);
@@ -2834,6 +2843,120 @@ apiRouter.get('/inventory/stock-inquiry', async (req: Request, res: Response) =>
     });
   }
 });
+
+/** Complete-result aggregates for the active stock inquiry filters. */
+apiRouter.get('/inventory/stock-inquiry/summary', async (req: Request, res: Response) => {
+  try {
+    if (!isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'خلاصه استعلام موجودی فقط از PostgreSQL قابل ارائه است.' });
+    const prisma = getPrismaClient();
+    let where: any;
+    try {
+      ({ where } = buildStockInquiryWhere(req.query));
+    } catch (filterError) {
+      return res.status(400).json({ success: false, error: filterError instanceof Error ? filterError.message : 'فیلتر استعلام موجودی معتبر نیست.' });
+    }
+
+    const [all, blocked, sapco] = await Promise.all([
+      prisma.stockBalance.aggregate({
+        where,
+        _count: { _all: true },
+        _sum: {
+          quantityOnHand: true,
+          quantityAvailable: true,
+          quantityReserved: true,
+          weightKgOnHand: true,
+          weightKgAvailable: true,
+          weightKgReserved: true,
+        },
+      }),
+      prisma.stockBalance.aggregate({
+        where: { AND: [where, { qualityStatus: { not: 'AVAILABLE' } }] },
+        _sum: { quantityOnHand: true, weightKgOnHand: true },
+      }),
+      prisma.stockBalance.aggregate({
+        where: { AND: [where, { ownership: 'SAPCO_SUPPLIER_OWNED' }] },
+        _sum: { weightKgOnHand: true },
+      }),
+    ]);
+    const sum = (value: unknown) => Number(value || 0);
+    res.json({
+      success: true,
+      source: 'POSTGRESQL_STOCK_BALANCE_AGGREGATES',
+      data: {
+        rowCount: all._count._all,
+        physicalQty: sum(all._sum.quantityOnHand),
+        availableQty: sum(all._sum.quantityAvailable),
+        reservedQty: sum(all._sum.quantityReserved),
+        physicalKg: sum(all._sum.weightKgOnHand),
+        availableKg: sum(all._sum.weightKgAvailable),
+        reservedKg: sum(all._sum.weightKgReserved),
+        qualityBlockedQty: sum(blocked._sum.quantityOnHand),
+        qualityBlockedKg: sum(blocked._sum.weightKgOnHand),
+        sapcoOwnedKg: sum(sapco._sum.weightKgOnHand),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در محاسبه خلاصه استعلام موجودی' });
+  }
+});
+
+/** Stock-dependent filter values; independent of the currently visible table page. */
+apiRouter.get('/inventory/stock-inquiry/facets', async (req: Request, res: Response) => {
+  try {
+    if (!isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'فیلترهای استعلام موجودی فقط از PostgreSQL قابل ارائه است.' });
+    const prisma = getPrismaClient();
+    let where: any;
+    try {
+      ({ where } = buildStockInquiryWhere(req.query));
+    } catch (filterError) {
+      return res.status(400).json({ success: false, error: filterError instanceof Error ? filterError.message : 'فیلتر استعلام موجودی معتبر نیست.' });
+    }
+
+    const distinctRows = await prisma.stockBalance.findMany({
+      where,
+      distinct: ['partId', 'materialLotId', 'physicalCoilId', 'contractNumber'],
+      select: { partId: true, materialLotId: true, physicalCoilId: true, contractNumber: true },
+    });
+    const partIds = [...new Set(distinctRows.map((row: any) => row.partId).filter(Boolean))];
+    const lotIds = [...new Set(distinctRows.map((row: any) => row.materialLotId).filter(Boolean))];
+    const coilIds = [...new Set(distinctRows.map((row: any) => row.physicalCoilId).filter(Boolean))];
+    const [partRows, lotRows, coilRows] = await Promise.all([
+      partIds.length ? prisma.part.findMany({
+        where: { id: { in: partIds } },
+        select: { material: { select: { grade: true } }, thicknessMm: true },
+      }) : [],
+      lotIds.length ? prisma.materialLot.findMany({
+        where: { id: { in: lotIds } },
+        select: { lotNumber: true, thicknessMm: true },
+      }) : [],
+      coilIds.length ? prisma.physicalCoil.findMany({
+        where: { id: { in: coilIds } },
+        select: { coilPackNumber: true, coilId: true, thicknessMm: true },
+      }) : [],
+    ]);
+    const unique = (values: unknown[]) => [...new Set(values.filter((value): value is string | number => (typeof value === 'string' && value.trim().length > 0) || (typeof value === 'number' && Number.isFinite(value)))];
+    const grades = unique(partRows.map((row: any) => row.material?.grade));
+    const thicknesses = unique([
+      ...partRows.map((row: any) => row.thicknessMm == null ? undefined : Number(row.thicknessMm)),
+      ...lotRows.map((row: any) => row.thicknessMm == null ? undefined : Number(row.thicknessMm)),
+      ...coilRows.map((row: any) => row.thicknessMm == null ? undefined : Number(row.thicknessMm)),
+    ]).sort((a, b) => Number(a) - Number(b));
+    res.json({
+      success: true,
+      source: 'POSTGRESQL_STOCK_BALANCE_FILTER_FACETS',
+      data: {
+        contractNumbers: unique(distinctRows.map((row: any) => row.contractNumber)).sort(),
+        lotNumbers: unique(lotRows.map((row: any) => row.lotNumber).concat(coilRows.map((row: any) => row.coilId))).sort(),
+        coilPackNumbers: unique(coilRows.map((row: any) => row.coilPackNumber)).sort(),
+        materialGrades: grades.sort(),
+        thicknesses,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در دریافت گزینه‌های فیلتر موجودی' });
+  }
+});
+
 
 /**
  * 16.8.1 Toggle QC Hold (قرنطینه کیفی) on Warehouse Stock Row or Coil
