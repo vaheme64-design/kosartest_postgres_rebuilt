@@ -197,20 +197,70 @@ export const IssueFormModal: React.FC<IssueFormModalProps> = ({
 
   const selectedPart = localParts.find(p => p.id === selectedPartId || p.code === selectedPartId);
 
+  // Load only the selected part's available stock from PostgreSQL; never use the
+  // global balance collection for lot selection or issue-quantity validation.
+  const [stockBalances, setStockBalances] = useState<DetailedStockBalance[]>([]);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockLoadError, setStockLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !selectedPartId) {
+      setStockBalances([]);
+      setStockLoadError(null);
+      return;
+    }
+    const controller = new AbortController();
+    const loadSelectedPartStock = async () => {
+      setStockLoading(true);
+      setStockLoadError(null);
+      try {
+        const params = new URLSearchParams({ partId: selectedPartId, onlyAvailable: 'true' });
+        if (warehouseId) params.set('warehouseId', warehouseId);
+        let response = await fetch(`/api/inventory/stock-inquiry?${params.toString()}`, { signal: controller.signal });
+        let result = await response.json();
+        if (!response.ok || result.success !== true) {
+          throw new Error(result.error || 'دریافت موجودی کالا از PostgreSQL ناموفق بود.');
+        }
+        let rows = Array.isArray(result.data) ? result.data : [];
+        // Preserve the existing behavior: if the selected warehouse has no stock,
+        // show available stock in other warehouses and let the user select its source.
+        if (rows.length === 0 && warehouseId) {
+          const fallbackParams = new URLSearchParams({ partId: selectedPartId, onlyAvailable: 'true' });
+          response = await fetch(`/api/inventory/stock-inquiry?${fallbackParams.toString()}`, { signal: controller.signal });
+          result = await response.json();
+          if (!response.ok || result.success !== true) {
+            throw new Error(result.error || 'دریافت موجودی کالا از PostgreSQL ناموفق بود.');
+          }
+          rows = Array.isArray(result.data) ? result.data : [];
+        }
+        if (!controller.signal.aborted) setStockBalances(rows);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setStockBalances([]);
+          setStockLoadError(error instanceof Error ? error.message : 'خطا در دریافت موجودی کالا');
+        }
+      } finally {
+        if (!controller.signal.aborted) setStockLoading(false);
+      }
+    };
+    void loadSelectedPartStock();
+    return () => controller.abort();
+  }, [isOpen, selectedPartId, warehouseId]);
+
   // Match lots by partId OR partCode; prefer current warehouse, fallback to all warehouses if current has none
   const availableLots = useMemo(() => {
     const matchesPart = (b: DetailedStockBalance) =>
       b.partId === selectedPartId ||
       (selectedPart && (b.partId === selectedPart.id || b.partCode === selectedPart.code));
 
-    const inSelectedWh = balances.filter(
+    const inSelectedWh = stockBalances.filter(
       b => matchesPart(b) && b.warehouseId === warehouseId && b.availableQty > 0
     );
     if (inSelectedWh.length > 0) return inSelectedWh;
 
     // Fallback: any warehouse that holds available stock for this part
-    return balances.filter(b => matchesPart(b) && b.availableQty > 0);
-  }, [balances, selectedPartId, selectedPart, warehouseId]);
+    return stockBalances.filter(b => matchesPart(b) && b.availableQty > 0);
+  }, [stockBalances, selectedPartId, selectedPart, warehouseId]);
 
   useEffect(() => {
     if (availableLots.length > 0) {
@@ -262,11 +312,11 @@ export const IssueFormModal: React.FC<IssueFormModalProps> = ({
     const matchesPart = (b: DetailedStockBalance) =>
       b.partId === selectedPartId ||
       (selectedPart && (b.partId === selectedPart.id || b.partCode === selectedPart.code));
-    const list = balances.filter(b => matchesPart(b) && b.warehouseId === warehouseId);
+    const list = stockBalances.filter(b => matchesPart(b) && b.warehouseId === warehouseId);
     const sumWh = list.reduce((sum, b) => sum + b.availableQty, 0);
     if (sumWh > 0) return sumWh;
-    return balances.filter(b => matchesPart(b)).reduce((sum, b) => sum + b.availableQty, 0);
-  }, [balances, selectedPartId, selectedPart, warehouseId]);
+    return stockBalances.filter(b => matchesPart(b)).reduce((sum, b) => sum + b.availableQty, 0);
+  }, [stockBalances, selectedPartId, selectedPart, warehouseId]);
 
   const availableToIssue = selectedLotBalance ? selectedLotBalance.availableQty : totalAvailableInWarehouse;
   const requestedQty = Number(quantity) || 0;
@@ -744,6 +794,14 @@ export const IssueFormModal: React.FC<IssueFormModalProps> = ({
                       <span>+ تعریف سریع کالا جدید</span>
                     </button>
                   </div>
+                  {stockLoadError && (
+                    <div className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert">
+                      خطا در دریافت موجودی: {stockLoadError}
+                    </div>
+                  )}
+                  {stockLoading && (
+                    <div className="mb-2 text-xs text-slate-500" role="status">در حال دریافت موجودی کالای انتخاب‌شده از PostgreSQL...</div>
+                  )}
                   <SearchableSelect
                     value={selectedPartId}
                     onChange={val => setSelectedPartId(val)}
