@@ -213,6 +213,28 @@ async function main() {
       `Stock inquiry facets must include values outside any current table page: ${JSON.stringify(facets.payload)}`
     );
     console.log('PASS: Stock inquiry facets return coil-pack and thickness values independent of table pagination.');
+    const groupedCoilPack = await requestJson(baseUrl, `/api/inventory/stock-inquiry/grouped?groupBy=COIL_PACK&search=${encodeURIComponent(nonce)}`);
+    const groupedCoilPackRow = groupedCoilPack.payload.data?.find((row: any) => row.groupKey === `${nonce}-PACK`);
+    assert(
+      groupedCoilPack.response.status === 200 &&
+        groupedCoilPack.payload.success === true &&
+        groupedCoilPack.payload.source === 'POSTGRESQL_STOCK_BALANCE_GROUPS' &&
+        groupedCoilPack.payload.totalRows === 1 &&
+        groupedCoilPackRow?.rowCount === 1 &&
+        groupedCoilPackRow?.coilsCount === 1 &&
+        Number(groupedCoilPackRow?.totalPhysicalKg) === 100 &&
+        Number(groupedCoilPackRow?.totalAvailableKg) === 100,
+      `Grouped stock inquiry must calculate complete filtered coil-pack totals in PostgreSQL: ${JSON.stringify(groupedCoilPack.payload)}`
+    );
+    console.log('PASS: Grouped stock inquiry returns complete filtered coil-pack aggregates from PostgreSQL.');
+
+    const invalidGroupedInquiry = await requestJson(baseUrl, `/api/inventory/stock-inquiry/grouped?groupBy=INVALID&search=${encodeURIComponent(nonce)}`);
+    assert(
+      invalidGroupedInquiry.response.status === 400 && invalidGroupedInquiry.payload.success === false,
+      'Grouped stock inquiry must reject unsupported grouping keys.'
+    );
+    console.log('PASS: Grouped stock inquiry validates the grouping key.');
+
 
     const warehouseSummary = await requestJson(baseUrl, `/api/inventory/stock-inquiry/warehouse-summary?search=${encodeURIComponent(nonce)}`);
     const warehouseSummaryRow = warehouseSummary.payload.data?.find((row: any) => row.warehouseId === warehouse.id);
