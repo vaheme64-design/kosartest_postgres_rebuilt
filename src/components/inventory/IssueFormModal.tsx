@@ -808,16 +808,10 @@ export const IssueFormModal: React.FC<IssueFormModalProps> = ({
                     placeholder="جستجو با نام، کد کالا، گرید ورق یا ابعاد..."
                     searchPlaceholder="تایپ نام یا کد ورق / کالا (مثلاً DC01A یا 1140)..."
                     options={eligibleParts.map(p => {
-                      const partStock = balances
-                        .filter(b => b.partId === p.id || b.partCode === p.code)
-                        .reduce((s, b) => s + b.availableQty, 0);
                       return {
                         value: p.id,
                         label: `${p.name} (${p.code})`,
-                        sublabel: `واحد: ${p.unit === 'KG' ? 'کیلوگرم' : 'عدد'}${
-                          p.materialGrade ? ` • گرید: ${p.materialGrade}` : ''
-                        }`,
-                        badge: `موجودی: ${formatNumber(partStock)} ${p.unit === 'KG' ? 'kg' : 'عدد'}`,
+                        sublabel: `واحد: ${p.unit === 'KG' ? 'کیلوگرم' : 'عدد'}${p.materialGrade ? ` • گرید: ${p.materialGrade}` : ''}`,
                       };
                     })}
                   />
