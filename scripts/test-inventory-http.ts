@@ -163,6 +163,31 @@ async function main() {
       'Stock inquiry pagination must return the filtered total and requested page metadata.'
     );
     console.log('PASS: Stock inquiry filtered pagination metadata.');
+    const summary = await requestJson(baseUrl, `/api/inventory/stock-inquiry/summary?search=${encodeURIComponent(nonce)}`);
+    assert(
+      summary.response.status === 200 &&
+        summary.payload.success === true &&
+        summary.payload.data?.rowCount === pagedReceipt.payload.total &&
+        Number(summary.payload.data?.physicalKg) === 100 &&
+        Number(summary.payload.data?.availableKg) === 100,
+      `Stock inquiry summary must aggregate the complete filtered result, not only the visible page: ${JSON.stringify(summary.payload)}`
+    );
+    console.log('PASS: Stock inquiry summary aggregates the complete filtered PostgreSQL result.');
+
+    const facets = await requestJson(baseUrl, `/api/inventory/stock-inquiry/facets?search=${encodeURIComponent(nonce)}`);
+    assert(
+      facets.response.status === 200 &&
+        facets.payload.success === true &&
+        facets.payload.data?.coilPackNumbers?.includes(`${nonce}-PACK`) &&
+        facets.payload.data?.thicknesses?.some((value: number) => Number(value) === expectedThickness),
+      `Stock inquiry facets must include values outside any current table page: ${JSON.stringify(facets.payload)}`
+    );
+    console.log('PASS: Stock inquiry facets return coil-pack and thickness values independent of table pagination.');
+
+    const invalidSummaryFilter = await requestJson(baseUrl, '/api/inventory/stock-inquiry/summary?thicknessMm=0');
+    assert(invalidSummaryFilter.response.status === 400 && invalidSummaryFilter.payload.success === false, 'Stock inquiry summary must reject invalid shared filters.');
+    console.log('PASS: Stock inquiry summary validates filters with the same rules as the list.');
+
 
     const invalidThickness = await requestJson(baseUrl, '/api/inventory/stock-inquiry?thicknessMm=0');
     assert(
