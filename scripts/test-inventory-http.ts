@@ -129,6 +129,24 @@ async function main() {
       `A 100 kg coil receipt must appear exactly once in stock inquiry; got ${receiptStockRows.length} rows / ${displayedReceiptKg} kg.`
     );
     console.log('PASS: Receipt appears once in documents and adds exactly 100 kg to stock inquiry after reload.');
+    const cardex = await requestJson(baseUrl, `/api/inventory/stock-inquiry/cardex?partCode=${encodeURIComponent(appPart.code)}`);
+    const cardexReceiptRows = cardex.payload.data?.filter((row: any) => row.coilPackNumber === `${nonce}-PACK`) || [];
+    assert(
+      cardex.response.status === 200 &&
+        cardex.payload.success === true &&
+        cardex.payload.source === 'POSTGRESQL_INVENTORY_TRANSACTION_LEDGER' &&
+        cardexReceiptRows.length === 1 &&
+        Number(cardexReceiptRows[0].inKg) === 100 &&
+        Number(cardexReceiptRows[0].runningBalanceKg) > 0,
+      `Selected-part Cardex must expose the persisted PostgreSQL receipt transaction and its running weight balance: ${JSON.stringify(cardex.payload)}`
+    );
+    console.log('PASS: Selected-part Cardex reads the PostgreSQL transaction ledger and running balance.');
+
+    const cardexMissingPart = await requestJson(baseUrl, '/api/inventory/stock-inquiry/cardex');
+    assert(cardexMissingPart.response.status === 400 && cardexMissingPart.payload.success === false,
+      'Cardex must reject requests without a part identifier.');
+    console.log('PASS: Cardex requires an explicit part identifier.');
+
 
     const expectedThickness = Number(dbPart.thicknessMm || 1);
     const byPack = await requestJson(baseUrl, `/api/inventory/stock-inquiry?coilPackNumber=${encodeURIComponent(`${nonce}-PACK`)}`);
