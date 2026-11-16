@@ -68,8 +68,43 @@ export const AdjustmentFormModal: React.FC<AdjustmentFormModalProps> = ({
   const currentWh = localWarehouses.find(w => w.id === warehouseId);
   const selectedPart = localParts.find(p => p.id === selectedPartId);
 
+  const [currentStockRows, setCurrentStockRows] = useState<DetailedStockBalance[]>([]);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockLoadError, setStockLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !selectedPartId || !warehouseId) {
+      setCurrentStockRows([]);
+      setStockLoadError(null);
+      return;
+    }
+    const controller = new AbortController();
+    const loadAdjustmentStock = async () => {
+      setStockLoading(true);
+      setStockLoadError(null);
+      try {
+        const params = new URLSearchParams({ partId: selectedPartId, warehouseId });
+        const response = await fetch(`/api/inventory/stock-inquiry?${params.toString()}`, { signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok || result.success !== true) {
+          throw new Error(result.error || 'دریافت مانده موجودی جهت تعدیل از PostgreSQL ناموفق بود.');
+        }
+        if (!controller.signal.aborted) setCurrentStockRows(Array.isArray(result.data) ? result.data : []);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setCurrentStockRows([]);
+          setStockLoadError(error instanceof Error ? error.message : 'خطا در دریافت مانده موجودی');
+        }
+      } finally {
+        if (!controller.signal.aborted) setStockLoading(false);
+      }
+    };
+    void loadAdjustmentStock();
+    return () => controller.abort();
+  }, [isOpen, selectedPartId, warehouseId]);
+
   // Available stock in that warehouse
-  const currentBalance = balances.find(
+  const currentBalance = currentStockRows.find(
     b => b.partId === selectedPartId && b.warehouseId === warehouseId && (!lotNumber || b.lotNumber === lotNumber)
   );
 
@@ -262,6 +297,13 @@ export const AdjustmentFormModal: React.FC<AdjustmentFormModalProps> = ({
               </select>
             </div>
           </div>
+
+          {stockLoadError && (
+            <div className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert">
+              خطا در دریافت موجودی: {stockLoadError}
+            </div>
+          )}
+          {stockLoading && <div className="mb-2 text-xs text-slate-500" role="status">در حال دریافت مانده موجودی از PostgreSQL...</div>}
 
           {/* Current Stock Banner */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
