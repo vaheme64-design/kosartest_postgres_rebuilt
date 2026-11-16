@@ -503,6 +503,7 @@ export interface DetailedStockBalance {
   locationCode: string;
   materialLotId?: string;
   lotNumber?: string;
+  coilPackNumber?: string;
   heatNumber?: string;
   ownership: StockOwnership;
   contractId?: string;
