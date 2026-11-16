@@ -2900,6 +2900,119 @@ apiRouter.get('/inventory/stock-inquiry/summary', async (req: Request, res: Resp
   }
 });
 
+/** Complete warehouse-level aggregates for inventory dashboard cards. */
+apiRouter.get('/inventory/stock-inquiry/warehouse-summary', async (req: Request, res: Response) => {
+  try {
+    if (!isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'خلاصه انبارها فقط از PostgreSQL قابل ارائه است.' });
+    const prisma = getPrismaClient();
+    let where: any;
+    try {
+      ({ where } = buildStockInquiryWhere(req.query));
+    } catch (filterError) {
+      return res.status(400).json({ success: false, error: filterError instanceof Error ? filterError.message : 'فیلتر استعلام موجودی معتبر نیست.' });
+    }
+    const rows = await prisma.stockBalance.findMany({
+      where,
+      select: {
+        warehouseId: true,
+        quantityAvailable: true,
+        weightKgAvailable: true,
+        qualityStatus: true,
+        part: { select: { unit: { select: { code: true } } } },
+        warehouse: { select: { name: true } },
+        materialLot: { select: { lotNumber: true } },
+        physicalCoil: { select: { coilId: true } },
+      },
+    });
+    const grouped = new Map<string, any>();
+    for (const row of rows as any[]) {
+      const entry = grouped.get(row.warehouseId) || {
+        warehouseId: row.warehouseId,
+        warehouseName: row.warehouse?.name || row.warehouseId,
+        physicalKg: 0,
+        availableKg: 0,
+        availablePcs: 0,
+        rowCount: 0,
+        lots: new Set<string>(),
+      };
+      const isAvailable = row.qualityStatus === 'AVAILABLE';
+      const availableKg = isAvailable ? Number(row.weightKgAvailable || 0) : 0;
+      const availableQty = isAvailable ? Number(row.quantityAvailable || 0) : 0;
+      entry.physicalKg += Number(row.weightKgAvailable || 0) + (isAvailable ? 0 : Number(row.weightKgOnHand || 0));
+      entry.availableKg += availableKg;
+      if (row.part?.unit?.code === 'PCS') entry.availablePcs += availableQty;
+      entry.rowCount += 1;
+      const lotNumber = row.materialLot?.lotNumber || row.physicalCoil?.coilId;
+      if (lotNumber) entry.lots.add(lotNumber);
+      grouped.set(row.warehouseId, entry);
+    }
+    const data = Array.from(grouped.values()).map(entry => ({
+      warehouseId: entry.warehouseId,
+      warehouseName: entry.warehouseName,
+      physicalKg: entry.physicalKg,
+      availableKg: entry.availableKg,
+      availablePcs: entry.availablePcs,
+      rowCount: entry.rowCount,
+      lotsCount: entry.lots.size,
+    }));
+    res.json({ success: true, source: 'POSTGRESQL_STOCK_BALANCE_WAREHOUSE_SUMMARY', data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در محاسبه خلاصه انبارها' });
+  }
+});
+
+/** Per-part available stock and warehouse locations for reorder-point calculations. */
+apiRouter.get('/inventory/stock-inquiry/part-summary', async (req: Request, res: Response) => {
+  try {
+    if (!isDatabaseUrlConfigured()) return res.status(503).json({ success: false, error: 'خلاصه موجودی کالاها فقط از PostgreSQL قابل ارائه است.' });
+    const prisma = getPrismaClient();
+    let where: any;
+    try {
+      ({ where } = buildStockInquiryWhere(req.query));
+    } catch (filterError) {
+      return res.status(400).json({ success: false, error: filterError instanceof Error ? filterError.message : 'فیلتر استعلام موجودی معتبر نیست.' });
+    }
+    const rows = await prisma.stockBalance.findMany({
+      where: { AND: [where, { warehouseId: { not: 'WH-SCRAP' } }] },
+      select: {
+        partId: true,
+        quantityAvailable: true,
+        weightKgAvailable: true,
+        qualityStatus: true,
+        warehouse: { select: { name: true } },
+      },
+    });
+    const grouped = new Map<string, any>();
+    for (const row of rows as any[]) {
+      const entry = grouped.get(row.partId) || {
+        partId: row.partId,
+        rowCount: 0,
+        availableQty: 0,
+        availableKg: 0,
+        locations: new Set<string>(),
+      };
+      const isAvailable = row.qualityStatus === 'AVAILABLE';
+      const availableQty = isAvailable ? Number(row.quantityAvailable || 0) : 0;
+      const availableKg = isAvailable ? Number(row.weightKgAvailable || 0) : 0;
+      entry.rowCount += 1;
+      entry.availableQty += availableQty;
+      entry.availableKg += availableKg;
+      if (availableQty > 0 || availableKg > 0) entry.locations.add(row.warehouse?.name || 'انبار نامشخص');
+      grouped.set(row.partId, entry);
+    }
+    const data = Array.from(grouped.values()).map(entry => ({
+      partId: entry.partId,
+      rowCount: entry.rowCount,
+      availableQty: entry.availableQty,
+      availableKg: entry.availableKg,
+      locationsSummary: Array.from(entry.locations),
+    }));
+    res.json({ success: true, source: 'POSTGRESQL_STOCK_BALANCE_PART_SUMMARY', data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در محاسبه خلاصه موجودی کالاها' });
+  }
+});
+
 /** Stock-dependent filter values; independent of the currently visible table page. */
 apiRouter.get('/inventory/stock-inquiry/facets', async (req: Request, res: Response) => {
   try {
