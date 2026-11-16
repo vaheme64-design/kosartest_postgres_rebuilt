@@ -2934,7 +2934,7 @@ apiRouter.get('/inventory/stock-inquiry/facets', async (req: Request, res: Respo
         select: { coilPackNumber: true, coilId: true, thicknessMm: true },
       }) : [],
     ]);
-    const unique = (values: unknown[]) => [...new Set(values.filter((value): value is string | number => (typeof value === 'string' && value.trim().length > 0) || (typeof value === 'number' && Number.isFinite(value)))];
+    const unique = (values: unknown[]): (string | number)[] => Array.from(new Set(values.filter((value): value is string | number => (typeof value === 'string' && value.trim().length > 0) || (typeof value === 'number' && Number.isFinite(value)))));
     const grades = unique(partRows.map((row: any) => row.material?.grade));
     const thicknesses = unique([
       ...partRows.map((row: any) => row.thicknessMm == null ? undefined : Number(row.thicknessMm)),
