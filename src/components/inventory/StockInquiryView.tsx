@@ -34,7 +34,6 @@ import {
   formatWeightKg,
   toPersianDigits,
   formatDateTime,
-  exportToCsv,
 } from '../../utils/formatters';
 import { CoilSlittingGenealogyPanel } from './CoilSlittingGenealogyPanel';
 import { useEnterpriseUx } from '../../context/EnterpriseUxContext';
@@ -648,50 +647,37 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     }
   };
 
-  const handleExportCsv = () => {
-    const headers = [
-      'کد کالا',
-      'عنوان کالا / ورق',
-      'جنس/گرید ورق',
-      'ضخامت (mm)',
-      'انبار',
-      'جایگاه',
-      'شماره کویل‌پک / بچ',
-      'شماره ذوب',
-      'شماره قرارداد',
-      'نوع مالکیت',
-      'موجودی فیزیکی',
-      'موجودی قابل استفاده (آزاد)',
-      'رزرو شده',
-      'قرنطینه کیفی',
-      'واحد',
-      'وزن کل (کیلوگرم)',
-      'وزن آزاد (کیلوگرم)',
-      'آخرین گردش',
-    ];
+  const handleExportCsv = async () => {
+    const params = new URLSearchParams();
+    if (selectedPartFilter !== 'ALL') params.set('partId', selectedPartFilter);
+    if (selectedWarehouseFilter !== 'ALL') params.set('warehouseId', selectedWarehouseFilter);
+    if (selectedOwnershipFilter !== 'ALL') params.set('ownership', selectedOwnershipFilter);
+    if (selectedGradeFilter !== 'ALL') params.set('materialGrade', selectedGradeFilter);
+    if (selectedThicknessFilter !== 'ALL') params.set('thicknessMm', selectedThicknessFilter);
+    if (selectedCoilPackFilter !== 'ALL') params.set('coilPackNumber', selectedCoilPackFilter);
+    if (selectedContractFilter !== 'ALL') params.set('contractNumber', selectedContractFilter);
+    if (selectedLotFilter !== 'ALL') params.set('lotNumber', selectedLotFilter);
+    if (searchTerm.trim()) params.set('search', searchTerm.trim());
+    if (onlyAvailable) params.set('onlyAvailable', 'true');
 
-    const rows = filteredBalances.map(b => [
-      b.partCode,
-      b.partName,
-      b.materialGrade || '—',
-      b.thicknessMm ? `${b.thicknessMm}` : '—',
-      b.warehouseName,
-      b.locationCode,
-      b.lotNumber || '—',
-      b.heatNumber || '—',
-      b.contractNumber || '—',
-      b.ownership === 'SAPCO_SUPPLIER_OWNED' ? 'امانی ساپکو' : 'ملکی کارخانه',
-      b.physicalQty,
-      b.availableQty,
-      b.reservedQty,
-      b.qualityBlockedQty,
-      b.unit === 'KG' ? 'کیلوگرم' : 'عدد',
-      b.physicalKg,
-      b.availableKg,
-      formatDateTime(b.lastTransactionAt),
-    ]);
-
-    exportToCsv(`گزارش_موجودی_انبار_${Date.now()}`, headers, rows);
+    try {
+      const response = await fetch(`/api/inventory/stock-inquiry/export?${params.toString()}`);
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result?.error || 'ساخت خروجی کامل موجودی ناموفق بود.');
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `گزارش_کامل_موجودی_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'خطا در دریافت خروجی موجودی');
+    }
   };
 
   const handleSort = (field: keyof DetailedStockBalance) => {
