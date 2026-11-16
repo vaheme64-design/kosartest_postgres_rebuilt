@@ -245,6 +245,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [selectedWarehouseFilter, setSelectedWarehouseFilter] = useState('ALL');
   const [selectedOwnershipFilter, setSelectedOwnershipFilter] = useState<'ALL' | StockOwnership>('ALL');
   const [selectedGradeFilter, setSelectedGradeFilter] = useState('ALL');
+  const [selectedThicknessFilter, setSelectedThicknessFilter] = useState('ALL');
   const [selectedContractFilter, setSelectedContractFilter] = useState('ALL');
   const [selectedLotFilter, setSelectedLotFilter] = useState('ALL');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
@@ -316,6 +317,14 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     return Array.from(set);
   }, [parts, balances]);
 
+  // Unique sheet thicknesses available in stock and the master catalog.
+  const thicknessOptions = useMemo(() => {
+    const values = new Set<number>();
+    parts.forEach(p => { if (typeof p.thicknessMm === 'number' && p.thicknessMm > 0) values.add(p.thicknessMm); });
+    balances.forEach(b => { if (typeof b.thicknessMm === 'number' && b.thicknessMm > 0) values.add(b.thicknessMm); });
+    return Array.from(values).sort((a, b) => a - b);
+  }, [parts, balances]);
+
   // Unique contracts
   const contractNumbers = useMemo(() => {
     const set = new Set<string>();
@@ -334,6 +343,9 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     if (selectedGradeFilter !== 'ALL') {
       list = list.filter(b => b.materialGrade === selectedGradeFilter);
     }
+    if (selectedThicknessFilter !== 'ALL') {
+      list = list.filter(b => b.thicknessMm != null && String(b.thicknessMm) === selectedThicknessFilter);
+    }
     if (selectedContractFilter !== 'ALL') {
       list = list.filter(b => b.contractNumber === selectedContractFilter);
     }
@@ -342,7 +354,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
       if (b.lotNumber) set.add(b.lotNumber);
     });
     return Array.from(set);
-  }, [balances, selectedPartFilter, selectedGradeFilter, selectedContractFilter]);
+  }, [balances, selectedPartFilter, selectedGradeFilter, selectedThicknessFilter, selectedContractFilter]);
 
   const filteredBalances = useMemo(() => {
     return balances
@@ -351,6 +363,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
         if (selectedWarehouseFilter !== 'ALL' && item.warehouseId !== selectedWarehouseFilter) return false;
         if (selectedOwnershipFilter !== 'ALL' && item.ownership !== selectedOwnershipFilter) return false;
         if (selectedGradeFilter !== 'ALL' && item.materialGrade !== selectedGradeFilter) return false;
+        if (selectedThicknessFilter !== 'ALL' && String(item.thicknessMm ?? '') !== selectedThicknessFilter) return false;
         if (selectedContractFilter !== 'ALL' && item.contractNumber !== selectedContractFilter) return false;
         if (selectedLotFilter !== 'ALL' && item.lotNumber !== selectedLotFilter) return false;
         if (onlyAvailable && item.availableQty <= 0) return false;
@@ -392,6 +405,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     selectedWarehouseFilter,
     selectedOwnershipFilter,
     selectedGradeFilter,
+    selectedThicknessFilter,
     selectedContractFilter,
     selectedLotFilter,
     onlyAvailable,
@@ -1335,6 +1349,23 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
             ))}
           </select>
 
+          {/* Thickness Filter */}
+          <select
+            value={selectedThicknessFilter}
+            onChange={e => {
+              setSelectedThicknessFilter(e.target.value);
+              setSelectedLotFilter('ALL');
+            }}
+            className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:bg-white focus:border-slate-900"
+          >
+            <option value="ALL">همه ضخامت‌های ورق</option>
+            {thicknessOptions.map(thickness => (
+              <option key={thickness} value={String(thickness)}>
+                ضخامت {toPersianDigits(thickness)} میلی‌متر
+              </option>
+            ))}
+          </select>
+
           {/* Dynamic Coil Pack Filter */}
           <select
             value={selectedLotFilter}
@@ -1413,7 +1444,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
 
         {/* Dynamic Matching Coil Pack Quick Tags */}
         {matchingPacksOrLots.length > 0 &&
-          (selectedPartFilter !== 'ALL' || selectedGradeFilter !== 'ALL' || selectedContractFilter !== 'ALL') && (
+          (selectedPartFilter !== 'ALL' || selectedGradeFilter !== 'ALL' || selectedThicknessFilter !== 'ALL' || selectedContractFilter !== 'ALL') && (
             <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-slate-100 text-[11px]">
               <span className="text-slate-500 font-medium">کویل‌پک‌های موجود برای این فیلتر (کلیک جهت انتخاب):</span>
               {matchingPacksOrLots.map(lot => (
