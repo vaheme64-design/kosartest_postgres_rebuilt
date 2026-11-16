@@ -3,10 +3,15 @@
 ## Status
 Implementation in progress. The PostgreSQL list, summary, and facet endpoints are now connected to the analytical stock-inquiry UI. The analytical table requests one 15-row page at a time; KPI aggregates and stock-dependent facets come from PostgreSQL. Coil-pack number is now a separate exact-match filter from material-lot / coil ID. This is not yet the final server-side migration: the module still downloads the full stock-balance result for dashboard, reorder-alert, Cardex, grouping, and CSV consumers. Those consumers must be migrated or explicitly proven to require the complete collection before the module-wide full fetch can be removed.
 
-Additional migration milestone: warehouse-level and per-part stock summary endpoints now back the inventory dashboard warehouse cards and reorder-alert calculations. The old detailed-balance calculation remains as a fallback if a summary request is unavailable.
+Additional migration milestones:
+- Warehouse-level and per-part stock summary endpoints now back the inventory dashboard warehouse cards and reorder-alert calculations. The detailed-balance calculation remains as a fallback if a summary request is unavailable.
+- Cardex now loads only the selected part's posted transactions from the immutable PostgreSQL inventory ledger; the old all-documents download and browser-side running-balance reconstruction have been removed.
+- CSV export now streams the complete filtered stock result from PostgreSQL in batches; the browser no longer builds the export from its in-memory balance collection.
 
-Latest verified implementation commit: `d30dec4b8e8b662d6d810369682bc22ad967f39e`
-CI run: [43833974011](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43833974011) — success.
+Latest verified implementation commit: `93439bc4eba25e8c4c864508b6d404c0fea279fa`
+CI run: [43836068689](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43836068689) — success. The inventory HTTP integration test verifies selected-part Cardex ledger output and filtered CSV export row count/content.
+
+Still open: grouped inquiry is calculated from the full parent-provided balance collection; the parent module still loads the full stock-balance list for operational forms and legacy consumers. These must be migrated before removing that fetch.
 
 ## Current verified behavior
 - `GET /api/inventory/stock-inquiry` reads relational `StockBalance` data and already accepts pagination and several filters.
