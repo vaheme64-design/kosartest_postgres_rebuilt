@@ -41,11 +41,8 @@ import { CoilSlittingGenealogyPanel } from './CoilSlittingGenealogyPanel';
 import { useEnterpriseUx } from '../../context/EnterpriseUxContext';
 import { FormulaTooltip } from '../common/FormulaTooltip';
 import {
-  loadQcHoldMap,
-  saveQcHoldMap,
   loadVipPartsMap,
   isPartVip,
-  QcHoldRecord,
 } from '../../utils/qcHoldStore';
 
 export type StockGroupingKey =
@@ -91,40 +88,16 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   onRefresh,
 }) => {
   const { requestConfirm, showUndoToast, recordAudit } = useEnterpriseUx();
-  const [qcHoldMap, setQcHoldMap] = useState<Record<string, QcHoldRecord>>(() => loadQcHoldMap());
   const [vipMap, setVipMap] = useState<Record<string, boolean>>(() => loadVipPartsMap());
 
   useEffect(() => {
-    const onHoldChange = () => setQcHoldMap(loadQcHoldMap());
     const onVipChange = () => setVipMap(loadVipPartsMap());
-    window.addEventListener('kpims-qc-hold-changed', onHoldChange);
     window.addEventListener('kpims-vip-parts-changed', onVipChange);
-    return () => {
-      window.removeEventListener('kpims-qc-hold-changed', onHoldChange);
-      window.removeEventListener('kpims-vip-parts-changed', onVipChange);
-    };
+    return () => window.removeEventListener('kpims-vip-parts-changed', onVipChange);
   }, []);
 
-  // Apply QC Hold overrides directly to balances so Available (ATP) = Physical - Reserved - QCHold
-  const balances = useMemo(() => {
-    return rawBalances.map(b => {
-      const hold =
-        qcHoldMap[b.id] ||
-        (b.lotNumber ? qcHoldMap[b.lotNumber] : undefined) ||
-        qcHoldMap[`${b.partId}-${b.warehouseId}`];
-      if (!hold || !hold.isHeld) return b;
-      const heldQty = Number(hold.heldQty || b.physicalQty || 0);
-      const effectiveBlocked = Math.min(b.physicalQty, Math.max(b.qualityBlockedQty || 0, heldQty));
-      const newAvailableQty = Math.max(0, b.physicalQty - b.reservedQty - effectiveBlocked);
-      const unitWeight = b.physicalQty > 0 ? b.physicalKg / b.physicalQty : 1;
-      return {
-        ...b,
-        qualityBlockedQty: effectiveBlocked,
-        availableQty: newAvailableQty,
-        availableKg: Math.round(newAvailableQty * unitWeight * 100) / 100,
-      };
-    });
-  }, [rawBalances, qcHoldMap]);
+  // PostgreSQL StockBalance is the sole source of truth for QC status and ATP.
+  const balances = rawBalances;
 
   // Mandatory QC Hold Reason Modal State
   const [qcHoldTargetBalance, setQcHoldTargetBalance] = useState<DetailedStockBalance | null>(null);
@@ -144,46 +117,16 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     nextHeld: boolean,
     mandatoryReasonFa?: string
   ) => {
-    const holdKey = b.id;
     const qtyToHold = b.physicalQty;
     const weightToHold = b.physicalKg || b.physicalQty;
     const finalReason = (mandatoryReasonFa || '').trim() || 'قرنطینه کیفی در جدول موجودی انبار (QC Hold)';
 
-    const prevMap = { ...qcHoldMap };
-    const updatedMap = { ...qcHoldMap };
-
-    if (nextHeld) {
-      const rec: QcHoldRecord = {
-        key: holdKey,
-        partId: b.partId,
-        partCode: b.partCode,
-        partName: b.partName,
-        lotNumber: b.lotNumber,
-        warehouseName: b.warehouseName,
-        isHeld: true,
-        heldQty: qtyToHold,
-        heldWeightKg: weightToHold,
-        unit: b.unit === 'KG' ? 'KG' : 'PCS',
-        reasonFa: finalReason,
-        updatedAt: new Date().toLocaleString('fa-IR'),
-        actor: 'مدیریت کنترل کیفیت (QC)',
-      };
-      updatedMap[holdKey] = rec;
-      if (b.lotNumber) updatedMap[b.lotNumber] = rec;
-    } else {
-      delete updatedMap[holdKey];
-      if (b.lotNumber) delete updatedMap[b.lotNumber];
-    }
-
-    setQcHoldMap(updatedMap);
-    saveQcHoldMap(updatedMap);
-
     try {
-      await fetch('/api/inventory/qc-hold', {
+      const response = await fetch('/api/inventory/qc-hold', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          key: holdKey,
+          key: b.id,
           partId: b.partId,
           partCode: b.partCode,
           materialGrade: b.materialGrade,
@@ -194,9 +137,15 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
           reasonFa: finalReason,
         }),
       });
+      const result = await response.json();
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'ثبت وضعیت قرنطینه در پایگاه داده ناموفق بود.');
+      }
       await onRefresh();
-    } catch {
-      // local state already updated
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'خطا در ثبت وضعیت قرنطینه';
+      window.alert(message);
+      return;
     }
 
     recordAudit({
@@ -225,20 +174,33 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
       description: nextHeld
         ? `علت: ${finalReason} | مقدار ${formatNumber(qtyToHold)} ${b.unit === 'KG' ? 'kg' : 'عدد'} از ATP کسر گردید.`
         : 'موجودی به چرخه آزاد تولید بازگشت.',
-      onUndo: () => {
-        setQcHoldMap(prevMap);
-        saveQcHoldMap(prevMap);
+      onUndo: async () => {
+        const undoResponse = await fetch('/api/inventory/qc-hold', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: b.id,
+            partId: b.partId,
+            partCode: b.partCode,
+            materialGrade: b.materialGrade,
+            lotNumber: b.lotNumber,
+            isHeld: !nextHeld,
+            heldQty: qtyToHold,
+            heldWeightKg: weightToHold,
+            reasonFa: 'بازگردانی عملیات قرنطینه',
+          }),
+        });
+        const undoResult = await undoResponse.json();
+        if (!undoResponse.ok || !undoResult?.success) {
+          throw new Error(undoResult?.error || 'بازگردانی وضعیت قرنطینه ناموفق بود.');
+        }
+        await onRefresh();
       },
     });
   };
 
   const handleToggleQcHoldOnBalance = (b: DetailedStockBalance) => {
-    const holdKey = b.id;
-    const isCurrentlyHeld = Boolean(
-      qcHoldMap[holdKey]?.isHeld ||
-        (b.lotNumber && qcHoldMap[b.lotNumber]?.isHeld) ||
-        b.qualityBlockedQty > 0
-    );
+    const isCurrentlyHeld = b.qualityBlockedQty > 0 || b.availableQty <= 0 && b.physicalQty > 0;
     const nextHeld = !isCurrentlyHeld;
     const qtyToHold = b.physicalQty;
 
