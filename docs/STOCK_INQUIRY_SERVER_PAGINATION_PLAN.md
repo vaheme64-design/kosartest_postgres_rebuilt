@@ -3,8 +3,10 @@
 ## Status
 Implementation in progress. The PostgreSQL list, summary, and facet endpoints are now connected to the analytical stock-inquiry UI. The analytical table requests one 15-row page at a time; KPI aggregates and stock-dependent facets come from PostgreSQL. Coil-pack number is now a separate exact-match filter from material-lot / coil ID. This is not yet the final server-side migration: the module still downloads the full stock-balance result for dashboard, reorder-alert, Cardex, grouping, and CSV consumers. Those consumers must be migrated or explicitly proven to require the complete collection before the module-wide full fetch can be removed.
 
-Verified implementation commit: `919ed02c9fca341781bf693a0c6e302658fdc2d0`
-CI run: [43833237713](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43833237713) — success.
+Additional migration milestone: warehouse-level and per-part stock summary endpoints now back the inventory dashboard warehouse cards and reorder-alert calculations. The old detailed-balance calculation remains as a fallback if a summary request is unavailable.
+
+Latest verified implementation commit: `d30dec4b8e8b662d6d810369682bc22ad967f39e`
+CI run: [43833974011](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43833974011) — success.
 
 ## Current verified behavior
 - `GET /api/inventory/stock-inquiry` reads relational `StockBalance` data and already accepts pagination and several filters.
