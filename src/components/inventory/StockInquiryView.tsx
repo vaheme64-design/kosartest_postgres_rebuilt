@@ -606,8 +606,9 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
         key = item.contractNumber || 'FREE';
         title = item.contractNumber ? `قرارداد شماره ${item.contractNumber}` : 'آزاد / بدون قرارداد مشخص';
       } else if (groupBy === 'COIL_PACK') {
-        key = item.lotNumber || 'NO_LOT';
-        title = item.lotNumber ? `کویل‌پک / بچ: ${item.lotNumber}` : 'بدون شماره کویل‌پک';
+        const coilPackOrLot = item.coilPackNumber || item.lotNumber;
+        key = coilPackOrLot || 'NO_LOT';
+        title = coilPackOrLot ? `کویل‌پک / بچ: ${coilPackOrLot}` : 'بدون شماره کویل‌پک';
       } else if (groupBy === 'GRADE') {
         key = item.materialGrade || 'OTHER';
         title = item.materialGrade ? `جنس / گرید ورق: ${item.materialGrade}` : 'سایر اقلام (پیچ، مهره، لاستیک و قطعات)';
@@ -1562,7 +1563,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
           </label>
 
           <div className="text-xs text-slate-500">
-            تعداد رکوردهای منطبق: <strong className="text-slate-900 font-mono">{formatNumber(filteredBalances.length)}</strong>
+            تعداد رکوردهای منطبق: <strong className="text-slate-900 font-mono">{formatNumber(serverTotalCount)}</strong>
           </div>
         </div>
       </div>
