@@ -69,11 +69,52 @@ export const TransferFormModal: React.FC<TransferFormModalProps> = ({
   const sourceWh = localWarehouses.find(w => w.id === sourceWarehouseId);
   const targetWh = localWarehouses.find(w => w.id === targetWarehouseId);
 
+  const [sourceStockBalances, setSourceStockBalances] = useState<DetailedStockBalance[]>([]);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockLoadError, setStockLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !selectedPartId || !sourceWarehouseId) {
+      setSourceStockBalances([]);
+      setStockLoadError(null);
+      return;
+    }
+    const controller = new AbortController();
+    const loadSourceStock = async () => {
+      setStockLoading(true);
+      setStockLoadError(null);
+      try {
+        const params = new URLSearchParams({
+          partId: selectedPartId,
+          warehouseId: sourceWarehouseId,
+          onlyAvailable: 'true',
+        });
+        const response = await fetch(`/api/inventory/stock-inquiry?${params.toString()}`, { signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok || result.success !== true) {
+          throw new Error(result.error || 'دریافت موجودی انبار مبدا از PostgreSQL ناموفق بود.');
+        }
+        if (!controller.signal.aborted) {
+          setSourceStockBalances(Array.isArray(result.data) ? result.data : []);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setSourceStockBalances([]);
+          setStockLoadError(error instanceof Error ? error.message : 'خطا در دریافت موجودی انبار مبدا');
+        }
+      } finally {
+        if (!controller.signal.aborted) setStockLoading(false);
+      }
+    };
+    void loadSourceStock();
+    return () => controller.abort();
+  }, [isOpen, selectedPartId, sourceWarehouseId]);
+
   const sourceLots = useMemo(() => {
-    return balances.filter(
+    return sourceStockBalances.filter(
       b => b.partId === selectedPartId && b.warehouseId === sourceWarehouseId && b.availableQty > 0
     );
-  }, [balances, selectedPartId, sourceWarehouseId]);
+  }, [sourceStockBalances, selectedPartId, sourceWarehouseId]);
 
   React.useEffect(() => {
     if (sourceLots.length > 0) {
@@ -84,7 +125,7 @@ export const TransferFormModal: React.FC<TransferFormModalProps> = ({
   }, [sourceLots]);
 
   const availableInSource = useMemo(() => {
-    const list = balances.filter(b => b.partId === selectedPartId && b.warehouseId === sourceWarehouseId);
+    const list = sourceStockBalances.filter(b => b.partId === selectedPartId && b.warehouseId === sourceWarehouseId);
     return list.reduce((sum, b) => sum + b.availableQty, 0);
   }, [balances, selectedPartId, sourceWarehouseId]);
 
@@ -329,6 +370,12 @@ export const TransferFormModal: React.FC<TransferFormModalProps> = ({
               <label className="block text-slate-700 font-semibold mb-1">
                 انتخاب کویل‌پک / بچ موجود در مبدا
               </label>
+              {stockLoadError && (
+                <div className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert">
+                  خطا در دریافت موجودی مبدا: {stockLoadError}
+                </div>
+              )}
+              {stockLoading && <div className="mb-2 text-xs text-slate-500" role="status">در حال دریافت موجودی انبار مبدا...</div>}
               <select
                 value={selectedLotNumber}
                 onChange={e => setSelectedLotNumber(e.target.value)}
