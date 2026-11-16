@@ -200,7 +200,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   };
 
   const handleToggleQcHoldOnBalance = (b: DetailedStockBalance) => {
-    const isCurrentlyHeld = b.qualityBlockedQty > 0 || b.availableQty <= 0 && b.physicalQty > 0;
+    const isCurrentlyHeld = b.qualityBlockedQty > 0;
     const nextHeld = !isCurrentlyHeld;
     const qtyToHold = b.physicalQty;
 
