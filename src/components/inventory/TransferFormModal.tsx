@@ -127,7 +127,7 @@ export const TransferFormModal: React.FC<TransferFormModalProps> = ({
   const availableInSource = useMemo(() => {
     const list = sourceStockBalances.filter(b => b.partId === selectedPartId && b.warehouseId === sourceWarehouseId);
     return list.reduce((sum, b) => sum + b.availableQty, 0);
-  }, [balances, selectedPartId, sourceWarehouseId]);
+  }, [sourceStockBalances, selectedPartId, sourceWarehouseId]);
 
   const selectedPart = localParts.find(p => p.id === selectedPartId);
   const requestedQty = Number(quantity) || 0;
