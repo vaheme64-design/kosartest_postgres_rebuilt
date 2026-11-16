@@ -421,6 +421,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     selectedWarehouseFilter,
     selectedOwnershipFilter,
     selectedGradeFilter,
+    selectedThicknessFilter,
     selectedContractFilter,
     selectedLotFilter,
     onlyAvailable,
@@ -1305,7 +1306,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
 
       {/* Filter & Grouping Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 shadow-2xs">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* Search */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
