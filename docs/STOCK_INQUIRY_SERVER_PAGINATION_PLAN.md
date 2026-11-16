@@ -1,7 +1,10 @@
 # Stock Inquiry Server-Side Pagination — Implementation Contract
 
 ## Status
-Design baseline for the next inventory inquiry implementation step. This document does not change runtime behavior or business rules.
+Implementation in progress. The PostgreSQL list, summary, and facet endpoints are now connected to the analytical stock-inquiry UI. The analytical table requests one 15-row page at a time; KPI aggregates and stock-dependent facets come from PostgreSQL. Coil-pack number is now a separate exact-match filter from material-lot / coil ID. This is not yet the final server-side migration: the module still downloads the full stock-balance result for dashboard, reorder-alert, Cardex, grouping, and CSV consumers. Those consumers must be migrated or explicitly proven to require the complete collection before the module-wide full fetch can be removed.
+
+Verified implementation commit: `919ed02c9fca341781bf693a0c6e302658fdc2d0`
+CI run: [43833237713](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43833237713) — success.
 
 ## Current verified behavior
 - `GET /api/inventory/stock-inquiry` reads relational `StockBalance` data and already accepts pagination and several filters.
