@@ -99,3 +99,30 @@ Cardex remains a separate part-scoped workflow. Load the selected part's complet
 
 ## Delivery rule
 Do not call this complete until the frontend no longer downloads the full stock-balance dataset for the inquiry table, all dependent views remain correct, the HTTP integration tests and TypeScript/build checks pass, and a real database-backed acceptance run has been performed. CI success alone is not proof of production database correctness.
+
+## Consumer audit — 2026-11-16
+
+The full-balance dependency audit confirms that removing the module-level inquiry request now would be unsafe. The remaining consumers are:
+
+| Consumer | Current dependency | Migration requirement |
+|---|---|---|
+| `StockInquiryView` filter/group pipeline | Full `balances` prop is still used to build client-side grouped rows and fallback filter values | Move group totals to a PostgreSQL aggregate endpoint; load group detail rows on demand. Keep list paging independent. |
+| `StockInquiryView` part/Cardex selector | Builds each part's stock totals and lot count by scanning all balances | Replace with the existing per-part summary endpoint plus a part-scoped lot/stock detail query. Cardex ledger itself is already independent and PostgreSQL-backed. |
+| `IssueFormModal` | Receives all balances for stock-aware issue selection/validation UI | Replace with a query scoped to selected part and source warehouse; server posting remains authoritative. |
+| `TransferFormModal` | Receives all balances to choose transferable stock rows | Replace with a source-warehouse/part-scoped stock query. |
+| `AdjustmentFormModal` | Receives all balances to select the stock row being adjusted | Replace with a targeted stock-row lookup; do not change adjustment semantics. |
+| `InventoryDashboard` | Still receives balances although warehouse summary is available | Inspect and remove the prop only after confirming no dashboard widget reads it. |
+| Reorder alerts | Uses per-part PostgreSQL summary first, but retains full-balance fallback | Remove fallback only after summary endpoint failure is surfaced as an explicit data error, not interpreted as zero stock. |
+
+### Safe next sequence
+
+1. Add integration coverage for server-side grouped aggregates and on-demand group detail retrieval, using the same `buildStockInquiryWhere` predicate as list, summary and export.
+2. Replace the inquiry view's client-side grouping and per-part balance scan; do not return every matching stock row merely to calculate group totals.
+3. Migrate issue, transfer and adjustment selectors to scoped stock queries and test warehouse/part/lot/coil-pack constraints.
+4. Confirm dashboard no longer consumes detailed balances and remove its obsolete prop.
+5. Change parent loading so detailed balances are fetched only by a workflow that demonstrably needs them; do not remove the fallback until every consumer has been migrated.
+6. Re-run database-backed lifecycle tests and manual acceptance against the user's PostgreSQL environment.
+
+This audit deliberately does not claim the full-fetch removal is complete. The last verified UI change only corrected coil-pack grouping identity and displayed the server's total result count; grouped row calculation remains client-side.
+
+Latest branch checkpoint: `c068a8b3bd85a782a647b20cd194a2240e682459`; CI run [43836521423](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43836521423) — success.
