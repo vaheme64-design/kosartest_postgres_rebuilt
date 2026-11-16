@@ -2900,6 +2900,99 @@ apiRouter.get('/inventory/stock-inquiry/summary', async (req: Request, res: Resp
   }
 });
 
+/** Export the complete filtered stock inquiry directly from PostgreSQL as CSV. */
+apiRouter.get('/inventory/stock-inquiry/export', async (req: Request, res: Response) => {
+  try {
+    if (!isDatabaseUrlConfigured()) {
+      return res.status(503).json({ success: false, error: 'خروجی رسمی موجودی فقط از PostgreSQL قابل ارائه است.' });
+    }
+    const prisma = getPrismaClient();
+    let where: any;
+    try {
+      ({ where } = buildStockInquiryWhere(req.query));
+    } catch (filterError) {
+      return res.status(400).json({ success: false, error: filterError instanceof Error ? filterError.message : 'فیلتر خروجی موجودی معتبر نیست.' });
+    }
+
+    const headers = [
+      'کد کالا', 'عنوان کالا / ورق', 'جنس/گرید ورق', 'ضخامت (mm)', 'انبار', 'جایگاه',
+      'شماره کویل‌پک / بچ', 'شماره ذوب', 'شماره قرارداد', 'نوع مالکیت',
+      'موجودی فیزیکی', 'موجودی قابل استفاده (آزاد)', 'رزرو شده', 'قرنطینه کیفی',
+      'واحد', 'وزن کل (کیلوگرم)', 'وزن آزاد (کیلوگرم)', 'آخرین گردش',
+    ];
+    const csvCell = (value: unknown) => {
+      const text = value == null ? '' : String(value);
+      return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+    res.status(200);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="stock-inquiry-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.write('\uFEFF' + headers.map(csvCell).join(',') + '\r\n');
+
+    const batchSize = 1000;
+    let cursorId: string | undefined;
+    let exportedCount = 0;
+    while (true) {
+      const batch = await prisma.stockBalance.findMany({
+        where,
+        include: {
+          part: { include: { material: true, unit: true } },
+          warehouse: true,
+          location: true,
+          materialLot: true,
+          physicalCoil: true,
+        },
+        orderBy: { id: 'asc' },
+        take: batchSize,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      });
+      if (!batch.length) break;
+      for (const row of batch as any[]) {
+        const physicalQty = Number(row.quantityOnHand || 0);
+        const physicalKg = Number(row.weightKgOnHand || 0);
+        const reservedQty = Number(row.quantityReserved || 0);
+        const reservedKg = Number(row.weightKgReserved || 0);
+        const blocked = row.qualityStatus !== 'AVAILABLE';
+        const availableQty = blocked ? 0 : Math.max(0, Number(row.quantityAvailable ?? physicalQty - reservedQty));
+        const availableKg = blocked ? 0 : Math.max(0, Number(row.weightKgAvailable ?? physicalKg - reservedKg));
+        const locationCode = [row.location?.aisle, row.location?.rack, row.location?.shelf, row.location?.bin].filter(Boolean).join('-') || 'MAIN';
+        const values = [
+          row.part.partNumber,
+          row.part.name,
+          row.part.material?.grade || '',
+          row.part.thicknessMm == null ? '' : Number(row.part.thicknessMm),
+          row.warehouse.name,
+          locationCode,
+          row.physicalCoil?.coilPackNumber || row.materialLot?.lotNumber || row.physicalCoil?.coilId || '',
+          row.materialLot?.heatNumber || row.physicalCoil?.heatNumber || '',
+          row.contractNumber || '',
+          row.ownership || 'COMPANY_OWNED',
+          physicalQty,
+          availableQty,
+          reservedQty,
+          blocked ? physicalQty : 0,
+          row.part.unit.code,
+          physicalKg,
+          availableKg,
+          (row.lastTransactionAt || row.updatedAt).toISOString(),
+        ];
+        res.write(values.map(csvCell).join(',') + '\r\n');
+        exportedCount += 1;
+      }
+      cursorId = batch[batch.length - 1].id;
+      if (batch.length < batchSize) break;
+    }
+    res.setHeader('X-Exported-Row-Count', String(exportedCount));
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در ساخت خروجی CSV موجودی' });
+    } else {
+      res.destroy(error instanceof Error ? error : undefined);
+    }
+  }
+});
+
 /** Immutable PostgreSQL inventory ledger for one selected part (Cardex). */
 apiRouter.get('/inventory/stock-inquiry/cardex', async (req: Request, res: Response) => {
   try {
