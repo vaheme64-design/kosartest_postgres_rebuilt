@@ -2924,9 +2924,11 @@ apiRouter.get('/inventory/stock-inquiry/export', async (req: Request, res: Respo
       const text = value == null ? '' : String(value);
       return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
     };
+    const exportCount = await prisma.stockBalance.count({ where });
     res.status(200);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="stock-inquiry-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.setHeader('X-Exported-Row-Count', String(exportCount));
     res.write('\uFEFF' + headers.map(csvCell).join(',') + '\r\n');
 
     const batchSize = 1000;
@@ -2982,7 +2984,9 @@ apiRouter.get('/inventory/stock-inquiry/export', async (req: Request, res: Respo
       cursorId = batch[batch.length - 1].id;
       if (batch.length < batchSize) break;
     }
-    res.setHeader('X-Exported-Row-Count', String(exportedCount));
+    if (exportedCount !== exportCount) {
+      throw new Error(`تعداد ردیف‌های خروجی با شمارش اولیه مغایرت دارد: ${exportedCount} / ${exportCount}`);
+    }
     res.end();
   } catch (error) {
     if (!res.headersSent) {
