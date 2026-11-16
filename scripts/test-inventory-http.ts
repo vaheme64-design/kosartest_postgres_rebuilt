@@ -130,6 +130,47 @@ async function main() {
     );
     console.log('PASS: Receipt appears once in documents and adds exactly 100 kg to stock inquiry after reload.');
 
+    const expectedThickness = Number(dbPart.thicknessMm || 1);
+    const byPack = await requestJson(baseUrl, `/api/inventory/stock-inquiry?coilPackNumber=${encodeURIComponent(`${nonce}-PACK`)}`);
+    assert(
+      byPack.response.status === 200 &&
+        byPack.payload.success === true &&
+        byPack.payload.total === 1 &&
+        byPack.payload.data?.[0]?.coilPackNumber === `${nonce}-PACK`,
+      'Stock inquiry must filter by exact physical coil pack number.'
+    );
+    console.log('PASS: Stock inquiry exact coil-pack filter.');
+
+    const byThickness = await requestJson(baseUrl, `/api/inventory/stock-inquiry?thicknessMm=${encodeURIComponent(String(expectedThickness))}&search=${encodeURIComponent(nonce)}`);
+    assert(
+      byThickness.response.status === 200 &&
+        byThickness.payload.success === true &&
+        byThickness.payload.total === 1 &&
+        Number(byThickness.payload.data?.[0]?.thicknessMm) === expectedThickness,
+      'Stock inquiry must filter by physical coil thickness and preserve the mapped thickness.'
+    );
+    console.log('PASS: Stock inquiry thickness filter.');
+
+    const pagedReceipt = await requestJson(baseUrl, `/api/inventory/stock-inquiry?search=${encodeURIComponent(nonce)}&page=1&limit=1`);
+    assert(
+      pagedReceipt.response.status === 200 &&
+        pagedReceipt.payload.success === true &&
+        pagedReceipt.payload.total === 1 &&
+        pagedReceipt.payload.page === 1 &&
+        pagedReceipt.payload.pageSize === 1 &&
+        pagedReceipt.payload.totalPages === 1 &&
+        pagedReceipt.payload.data?.length === 1,
+      'Stock inquiry pagination must return the filtered total and requested page metadata.'
+    );
+    console.log('PASS: Stock inquiry filtered pagination metadata.');
+
+    const invalidThickness = await requestJson(baseUrl, '/api/inventory/stock-inquiry?thicknessMm=0');
+    assert(
+      invalidThickness.response.status === 400 && invalidThickness.payload.success === false,
+      'Stock inquiry must reject non-positive thickness filters.'
+    );
+    console.log('PASS: Stock inquiry rejects invalid thickness filters.');
+
     const invalidAllocation = await requestJson(baseUrl, `/api/inventory/coils/${coilId}/allocate`, 'POST', { allocations: [] });
     assert(invalidAllocation.response.status === 400, 'Allocation endpoint must reject an empty allocation list with HTTP 400.');
 
