@@ -2942,6 +2942,7 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
             groupWhere.AND = [...(groupWhere.AND || []), { OR: [
               { physicalCoil: { is: { coilPackNumber: groupKey } } },
               { AND: [{ physicalCoilId: null }, { materialLot: { is: { lotNumber: groupKey } } }] },
+              { AND: [{ physicalCoil: { is: { coilPackNumber: '' } } }, { materialLot: { is: { lotNumber: groupKey } } }] },
               { AND: [{ materialLotId: null }, { physicalCoil: { is: { coilId: groupKey, coilPackNumber: '' } } }] },
             ] }];
           }
