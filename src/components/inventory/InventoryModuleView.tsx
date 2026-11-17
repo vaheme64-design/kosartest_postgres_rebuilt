@@ -857,8 +857,8 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
           metrics={metrics}
           contracts={contracts}
           warehouses={warehouses}
-          balances={balances}
           warehouseStockSummary={warehouseStockSummary}
+          warehouseStockSummaryError={warehouseStockSummaryError}
           loading={loading}
           onRefresh={loadInventoryData}
           onOpenReceipt={() => setIsReceiptOpen(true)}
