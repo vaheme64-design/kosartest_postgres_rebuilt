@@ -21,7 +21,6 @@ interface TransferFormModalProps {
   onClose: () => void;
   parts: Part[];
   warehouses: WarehouseDefinition[];
-  balances: DetailedStockBalance[];
   onSubmit: (payload: any) => Promise<{ success: boolean; message?: string; error?: string }>;
   onItemCreated?: () => void;
 }
@@ -31,7 +30,6 @@ export const TransferFormModal: React.FC<TransferFormModalProps> = ({
   onClose,
   parts: initialParts,
   warehouses: initialWarehouses,
-  balances,
   onSubmit,
   onItemCreated,
 }) => {
