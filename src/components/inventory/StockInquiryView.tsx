@@ -54,7 +54,6 @@ export type StockGroupingKey =
   | 'THICKNESS';
 
 interface StockInquiryViewProps {
-  balances: DetailedStockBalance[];
   parts: Part[];
   warehouses: WarehouseDefinition[];
   loading: boolean;
@@ -79,7 +78,6 @@ const DEFAULT_VISIBLE_COLUMNS = {
 };
 
 export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
-  balances: rawBalances,
   parts,
   warehouses,
   loading,
@@ -95,7 +93,6 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   }, []);
 
   // PostgreSQL StockBalance is the sole source of truth for QC status and ATP.
-  const balances = rawBalances;
 
   // Mandatory QC Hold Reason Modal State
   const [qcHoldTargetBalance, setQcHoldTargetBalance] = useState<DetailedStockBalance | null>(null);
@@ -435,7 +432,6 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [sortAsc, setSortAsc] = useState(false);
 
   // The list, global aggregates and filter facets are read from PostgreSQL.
-  // Keep the parent-provided full balance collection for Cardex, reorder context and grouped detail rows during this migration stage.
   useEffect(() => {
     const controller = new AbortController();
     const filterParams = new URLSearchParams();
@@ -461,7 +457,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     Promise.all([
       fetch(`/api/inventory/stock-inquiry?${listParams.toString()}`, { signal: controller.signal }).then(r => r.json()),
       fetch(`/api/inventory/stock-inquiry/summary?${filterParams.toString()}`, { signal: controller.signal }).then(r => r.json()),
-      fetch(`/api/inventory/stock-inquiry/facets?${filterParams.toString()}`, { signal: controller.signal }).then(r => r.json()),
+      fetch(`/api/inventory/stock-inquiry/facets?${(() => { const facetParams = new URLSearchParams(filterParams); facetParams.delete('lotNumber'); facetParams.delete('coilPackNumber'); return facetParams.toString(); })()}`, { signal: controller.signal }).then(r => r.json()),
     ])
       .then(([listResult, summaryResult, facetsResult]) => {
         if (!listResult?.success || !Array.isArray(listResult.data)) {
@@ -508,7 +504,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     currentPage, pageSize, sortField, sortAsc, searchTerm, selectedPartFilter,
     selectedWarehouseFilter, selectedOwnershipFilter, selectedGradeFilter,
     selectedThicknessFilter, selectedCoilPackFilter, selectedContractFilter, selectedLotFilter, onlyAvailable,
-    rawBalances, inquiryRefreshToken,
+    inquiryRefreshToken,
   ]);
 
   // Group totals are fetched from PostgreSQL for the complete filtered result.
@@ -569,200 +565,16 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     selectedCoilPackFilter, selectedContractFilter, selectedLotFilter, onlyAvailable,
   ]);
 
-  // Unique material grades
-  const grades = useMemo(() => {
-    if (serverFacets?.materialGrades.length) return serverFacets.materialGrades;
-    const set = new Set<string>();
-    parts.forEach(p => {
-      if (p.materialGrade) set.add(p.materialGrade);
-    });
-    balances.forEach(b => {
-      if (b.materialGrade) set.add(b.materialGrade);
-    });
-    return Array.from(set);
-  }, [parts, balances, serverFacets]);
+  // Filter facets are server-owned and independent of the current page.
+  const grades = serverFacets?.materialGrades || [];
+  const thicknessOptions = serverFacets?.thicknesses || [];
+  const contractNumbers = serverFacets?.contractNumbers || [];
+  const matchingPacksOrLots = serverFacets?.lotNumbers || [];
 
-  // Unique sheet thicknesses available in stock and the master catalog.
-  const thicknessOptions = useMemo(() => {
-    if (serverFacets?.thicknesses.length) return serverFacets.thicknesses;
-    const values = new Set<number>();
-    parts.forEach(p => { if (typeof p.thicknessMm === 'number' && p.thicknessMm > 0) values.add(p.thicknessMm); });
-    balances.forEach(b => { if (typeof b.thicknessMm === 'number' && b.thicknessMm > 0) values.add(b.thicknessMm); });
-    return Array.from(values).sort((a, b) => a - b);
-  }, [parts, balances, serverFacets]);
-
-  // Unique contracts
-  const contractNumbers = useMemo(() => {
-    if (serverFacets?.contractNumbers.length) return serverFacets.contractNumbers;
-    const set = new Set<string>();
-    balances.forEach(b => {
-      if (b.contractNumber) set.add(b.contractNumber);
-    });
-    return Array.from(set);
-  }, [balances, serverFacets]);
-
-  // Unique coil-packs / lot numbers dynamically matching current part/grade
-  const matchingPacksOrLots = useMemo(() => {
-    let list = balances;
-    if (selectedPartFilter !== 'ALL') {
-      list = list.filter(b => b.partId === selectedPartFilter);
-    }
-    if (selectedGradeFilter !== 'ALL') {
-      list = list.filter(b => b.materialGrade === selectedGradeFilter);
-    }
-    if (selectedThicknessFilter !== 'ALL') {
-      list = list.filter(b => b.thicknessMm != null && String(b.thicknessMm) === selectedThicknessFilter);
-    }
-    if (selectedContractFilter !== 'ALL') {
-      list = list.filter(b => b.contractNumber === selectedContractFilter);
-    }
-    const set = new Set<string>();
-    list.forEach(b => {
-      if (b.lotNumber) set.add(b.lotNumber);
-    });
-    return Array.from(set);
-  }, [balances, selectedPartFilter, selectedGradeFilter, selectedThicknessFilter, selectedContractFilter]);
-
-  const filteredBalances = useMemo(() => {
-    return balances
-      .filter(item => {
-        if (selectedPartFilter !== 'ALL' && item.partId !== selectedPartFilter) return false;
-        if (selectedWarehouseFilter !== 'ALL' && item.warehouseId !== selectedWarehouseFilter) return false;
-        if (selectedOwnershipFilter !== 'ALL' && item.ownership !== selectedOwnershipFilter) return false;
-        if (selectedGradeFilter !== 'ALL' && item.materialGrade !== selectedGradeFilter) return false;
-        if (selectedThicknessFilter !== 'ALL' && String(item.thicknessMm ?? '') !== selectedThicknessFilter) return false;
-        if (selectedCoilPackFilter !== 'ALL' && item.coilPackNumber !== selectedCoilPackFilter) return false;
-        if (selectedContractFilter !== 'ALL' && item.contractNumber !== selectedContractFilter) return false;
-        if (selectedLotFilter !== 'ALL' && item.lotNumber !== selectedLotFilter) return false;
-        if (onlyAvailable && item.availableQty <= 0) return false;
-
-        if (searchTerm.trim()) {
-          const q = searchTerm.toLowerCase();
-          const matchesName = item.partName.toLowerCase().includes(q);
-          const matchesCode = item.partCode.toLowerCase().includes(q);
-          const matchesLot = item.lotNumber ? item.lotNumber.toLowerCase().includes(q) : false;
-          const matchesCoilPack = item.coilPackNumber ? item.coilPackNumber.toLowerCase().includes(q) : false;
-          const matchesHeat = item.heatNumber ? item.heatNumber.toLowerCase().includes(q) : false;
-          const matchesContract = item.contractNumber ? item.contractNumber.toLowerCase().includes(q) : false;
-          const matchesGrade = item.materialGrade ? item.materialGrade.toLowerCase().includes(q) : false;
-          const matchesWh = item.warehouseName.toLowerCase().includes(q);
-          if (
-            !matchesName &&
-            !matchesCode &&
-            !matchesLot &&
-            !matchesCoilPack &&
-            !matchesHeat &&
-            !matchesContract &&
-            !matchesGrade &&
-            !matchesWh
-          ) {
-            return false;
-          }
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const valA = a[sortField] ?? 0;
-        const valB = b[sortField] ?? 0;
-        if (valA < valB) return sortAsc ? -1 : 1;
-        if (valA > valB) return sortAsc ? 1 : -1;
-        return 0;
-      });
-  }, [
-    balances,
-    searchTerm,
-    selectedPartFilter,
-    selectedWarehouseFilter,
-    selectedOwnershipFilter,
-    selectedGradeFilter,
-    selectedThicknessFilter,
-    selectedCoilPackFilter,
-    selectedContractFilter,
-    selectedLotFilter,
-    onlyAvailable,
-    sortField,
-    sortAsc,
-  ]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [
-    searchTerm,
-    selectedPartFilter,
-    selectedWarehouseFilter,
-    selectedOwnershipFilter,
-    selectedGradeFilter,
-    selectedThicknessFilter,
-    selectedCoilPackFilter,
-    selectedContractFilter,
-    selectedLotFilter,
-    onlyAvailable,
-    groupBy,
-  ]);
-
-  // KPI aggregates cover the complete PostgreSQL result, not only the visible page.
-  const totalPhysicalKg = serverSummary?.physicalKg ?? filteredBalances.reduce((sum, b) => sum + b.physicalKg, 0);
-  const totalAvailableKg = serverSummary?.availableKg ?? filteredBalances.reduce((sum, b) => sum + b.availableKg, 0);
-  const totalReservedKg = serverSummary?.reservedKg ?? filteredBalances.reduce((sum, b) => sum + b.reservedKg, 0);
-  const totalSapcoKg = serverSummary?.sapcoOwnedKg ?? filteredBalances
-    .filter(b => b.ownership === 'SAPCO_SUPPLIER_OWNED')
-    .reduce((sum, b) => sum + b.physicalKg, 0);
-
-  // Group headers and totals come from PostgreSQL; the existing detail rows remain available below each group.
-  const groupedData = serverGroupedData;
-
-  const fetchGroupDetails = async (group: typeof serverGroupedData[number], page: number, append: boolean) => {
-    setGroupDetailLoading(group.groupKey);
-    setGroupDetailErrors(current => ({ ...current, [group.groupKey]: '' }));
-    const params = new URLSearchParams();
-    params.set('groupBy', groupBy);
-    params.set('detailsOnly', 'true');
-    params.set('groupKey', group.groupKey);
-    params.set('page', String(page));
-    params.set('limit', '50');
-    if (selectedPartFilter !== 'ALL') params.set('partId', selectedPartFilter);
-    if (selectedWarehouseFilter !== 'ALL') params.set('warehouseId', selectedWarehouseFilter);
-    if (selectedOwnershipFilter !== 'ALL') params.set('ownership', selectedOwnershipFilter);
-    if (selectedGradeFilter !== 'ALL') params.set('materialGrade', selectedGradeFilter);
-    if (selectedThicknessFilter !== 'ALL') params.set('thicknessMm', selectedThicknessFilter);
-    if (selectedCoilPackFilter !== 'ALL') params.set('coilPackNumber', selectedCoilPackFilter);
-    if (selectedContractFilter !== 'ALL') params.set('contractNumber', selectedContractFilter);
-    if (selectedLotFilter !== 'ALL') params.set('lotNumber', selectedLotFilter);
-    if (searchTerm.trim()) params.set('search', searchTerm.trim());
-    if (onlyAvailable) params.set('onlyAvailable', 'true');
-    try {
-      const response = await fetch(`/api/inventory/stock-inquiry/grouped?${params.toString()}`);
-      const result = await response.json();
-      if (!response.ok || !result?.success || !Array.isArray(result.data)) {
-        throw new Error(result?.error || 'دریافت جزئیات گروه ناموفق بود.');
-      }
-      setGroupDetailPages(current => ({
-        ...current,
-        [group.groupKey]: {
-          items: append ? [...(current[group.groupKey]?.items || []), ...result.data] : result.data,
-          page: result.page,
-          totalPages: result.totalPages,
-          total: result.total,
-        },
-      }));
-    } catch (error) {
-      setGroupDetailErrors(current => ({
-        ...current,
-        [group.groupKey]: error instanceof Error ? error.message : 'خطا در دریافت جزئیات گروه',
-      }));
-    } finally {
-      setGroupDetailLoading(current => current === group.groupKey ? null : current);
-    }
-  };
-
-  const handleToggleGroup = (group: typeof serverGroupedData[number]) => {
-    if (expandedGroupKey === group.groupKey) {
-      setExpandedGroupKey(null);
-      return;
-    }
-    setExpandedGroupKey(group.groupKey);
-    if (!groupDetailPages[group.groupKey]) void fetchGroupDetails(group, 1, false);
-  };
+  const totalPhysicalKg = serverSummary?.physicalKg ?? 0;
+  const totalAvailableKg = serverSummary?.availableKg ?? 0;
+  const totalReservedKg = serverSummary?.reservedKg ?? 0;
+  const totalSapcoKg = serverSummary?.sapcoOwnedKg ?? 0;
 
   const totalPages = serverTotalPages;
   const paginatedBalances = serverPageBalances;
