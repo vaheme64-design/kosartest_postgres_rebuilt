@@ -985,7 +985,6 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
         warehouses={warehouses}
         customers={customers}
         contracts={contracts}
-        balances={balances}
         initialDraft={issueModalPreset || initialIssueDraft}
         onSubmit={handleCreateDocument}
         onItemCreated={loadInventoryData}
