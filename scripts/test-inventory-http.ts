@@ -272,7 +272,9 @@ async function main() {
       partSummary.response.status === 200 &&
         partSummary.payload.success === true &&
         Number(partSummaryRow?.rowCount) === 1 &&
+        Number(partSummaryRow?.physicalKg) === 100 &&
         Number(partSummaryRow?.availableKg) === 100 &&
+        Number(partSummaryRow?.physicalQty) === 100 &&
         partSummaryRow?.locationsSummary?.includes(warehouse.name),
       `Part summary must return available stock and locations for reorder calculations: ${JSON.stringify(partSummary.payload)}`
     );
