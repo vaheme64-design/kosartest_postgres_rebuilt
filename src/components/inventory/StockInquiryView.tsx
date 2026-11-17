@@ -369,6 +369,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [selectedPartBalancesPage, setSelectedPartBalancesPage] = useState(1);
   const [selectedPartBalancesTotalPages, setSelectedPartBalancesTotalPages] = useState(1);
   const [selectedPartBalancesTotal, setSelectedPartBalancesTotal] = useState(0);
+  const [loadingMoreSelectedPartBalances, setLoadingMoreSelectedPartBalances] = useState(false);
 
 
 
@@ -761,10 +762,10 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
 
   const loadMoreSelectedPartBalances = async () => {
     const selectedPart = parts.find(part => part.id === selectedCardexPartId || part.code === selectedCardexPartId);
-    if (!selectedPart || selectedPartBalancesPage >= selectedPartBalancesTotalPages || selectedPartBalancesLoading) return;
+    if (!selectedPart || selectedPartBalancesPage >= selectedPartBalancesTotalPages || loadingMoreSelectedPartBalances) return;
     const nextPage = selectedPartBalancesPage + 1;
     const params = new URLSearchParams({ partId: selectedPart.id, page: String(nextPage), limit: '50' });
-    setSelectedPartBalancesLoading(true);
+    setLoadingMoreSelectedPartBalances(true);
     setSelectedPartBalancesError('');
     try {
       const response = await fetch(`/api/inventory/stock-inquiry?${params.toString()}`);
@@ -779,7 +780,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     } catch (error) {
       setSelectedPartBalancesError(error instanceof Error ? error.message : 'خطا در دریافت صفحه بعدی موجودی کالا');
     } finally {
-      setSelectedPartBalancesLoading(false);
+      setLoadingMoreSelectedPartBalances(false);
     }
   };
 
@@ -1195,9 +1196,9 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                     )}
                     {selectedPartBalancesPage < selectedPartBalancesTotalPages && (
                       <div className="pt-2 text-center">
-                        <button type="button" onClick={() => void loadMoreSelectedPartBalances()} disabled={selectedPartBalancesLoading}
+                        <button type="button" onClick={() => void loadMoreSelectedPartBalances()} disabled={loadingMoreSelectedPartBalances}
                           className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-                          {selectedPartBalancesLoading ? 'در حال دریافت...' : 'بارگذاری ۵۰ ردیف بعدی'}
+                          {loadingMoreSelectedPartBalances ? 'در حال دریافت...' : 'بارگذاری ۵۰ ردیف بعدی'}
                         </button>
                       </div>
                     )}
