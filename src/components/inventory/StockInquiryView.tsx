@@ -245,6 +245,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [selectedContractFilter, setSelectedContractFilter] = useState('ALL');
   const [selectedLotFilter, setSelectedLotFilter] = useState('ALL');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // View Mode: ANALYTICAL_TABLE vs PART_CARDEX vs COIL_SLITTING
   const [inquiryMode, setInquiryMode] = useState<'PART_CARDEX' | 'ANALYTICAL_TABLE' | 'COIL_SLITTING'>('PART_CARDEX');
@@ -1371,7 +1372,24 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
       </div>
 
       {/* Filter & Grouping Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 shadow-2xs">
+      <div className="bg-white rounded-md border border-slate-200 shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-slate-500" />
+            <span className="text-xs font-semibold text-slate-800">فیلترهای استعلام موجودی</span>
+            <span className="text-[10px] text-slate-400">نتایج بر اساس فیلترهای انتخابی از PostgreSQL</span>
+          </div>
+          <button type="button" onClick={() => setShowAdvancedFilters(value => !value)}
+            aria-expanded={showAdvancedFilters}
+            className="rounded border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
+            {showAdvancedFilters ? 'بستن فیلترهای پیشرفته' : 'فیلترهای پیشرفته'}
+            {(() => {
+              const count = [selectedGradeFilter, selectedThicknessFilter, selectedCoilPackFilter, selectedLotFilter, selectedContractFilter].filter(value => value !== 'ALL').length;
+              return count > 0 ? <span className="mr-1 rounded-full bg-[#eaf3fc] px-1.5 py-0.5 text-[#0a6ed1]">{toPersianDigits(count)}</span> : null;
+            })()}
+          </button>
+        </div>
+        <div className="space-y-3 p-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           {/* Search */}
           <div className="relative">
@@ -1399,6 +1417,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
             ))}
           </select>
 
+          {showAdvancedFilters && (
+          <>
           {/* Grade Filter */}
           <select
             value={selectedGradeFilter}
@@ -1458,6 +1478,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
               </option>
             ))}
           </select>
+          </>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1475,6 +1497,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
             ))}
           </select>
 
+          {showAdvancedFilters && (
+          <>
           {/* Contract Filter */}
           <select
             value={selectedContractFilter}
@@ -1488,6 +1512,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
               </option>
             ))}
           </select>
+          </>
+          )}
 
           {/* Ownership Filter */}
           <select
@@ -1521,6 +1547,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
           </div>
         </div>
 
+        {showAdvancedFilters && (
+        <>
         {/* Dynamic Matching Coil Pack Quick Tags */}
         {matchingPacksOrLots.length > 0 &&
           (selectedPartFilter !== 'ALL' || selectedGradeFilter !== 'ALL' || selectedThicknessFilter !== 'ALL' || selectedContractFilter !== 'ALL') && (
@@ -1542,6 +1570,8 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
               ))}
             </div>
           )}
+        </>
+        )}
 
         <div className="flex flex-wrap items-center justify-between pt-2 border-t border-slate-100 gap-2">
           <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
@@ -1557,6 +1587,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
           <div className="text-xs text-slate-500">
             تعداد رکوردهای منطبق: <strong className="text-slate-900 font-mono">{formatNumber(serverTotalCount)}</strong>
           </div>
+        </div>
         </div>
       </div>
 
