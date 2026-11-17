@@ -3371,41 +3371,53 @@ apiRouter.get('/inventory/stock-inquiry/part-summary', async (req: Request, res:
     } catch (filterError) {
       return res.status(400).json({ success: false, error: filterError instanceof Error ? filterError.message : 'فیلتر استعلام موجودی معتبر نیست.' });
     }
-    const rows = await prisma.stockBalance.findMany({
-      where: { AND: [where, { warehouseId: { not: 'WH-SCRAP' } }] },
-      select: {
-        partId: true,
-        quantityAvailable: true,
-        weightKgAvailable: true,
-        qualityStatus: true,
-        warehouse: { select: { name: true } },
-      },
-    });
+    const scopedWhere = { AND: [where, { warehouseId: { not: 'WH-SCRAP' } }] };
+    const [aggregates, locations] = await Promise.all([
+      prisma.stockBalance.groupBy({
+        by: ['partId', 'qualityStatus'],
+        where: scopedWhere,
+        _count: { _all: true },
+        _sum: {
+          quantityOnHand: true, quantityAvailable: true, quantityReserved: true,
+          weightKgOnHand: true, weightKgAvailable: true, weightKgReserved: true,
+        },
+      }),
+      prisma.stockBalance.findMany({
+        where: scopedWhere,
+        distinct: ['partId', 'warehouseId'],
+        select: { partId: true, warehouse: { select: { name: true } } },
+      }),
+    ]);
     const grouped = new Map<string, any>();
-    for (const row of rows as any[]) {
+    for (const row of aggregates as any[]) {
       const entry = grouped.get(row.partId) || {
-        partId: row.partId,
-        rowCount: 0,
-        availableQty: 0,
-        availableKg: 0,
-        locations: new Set<string>(),
+        partId: row.partId, rowCount: 0, physicalQty: 0, availableQty: 0,
+        reservedQty: 0, blockedQty: 0, physicalKg: 0, availableKg: 0,
+        blockedKg: 0, locationsSummary: [],
       };
-      const isAvailable = row.qualityStatus === 'AVAILABLE';
-      const availableQty = isAvailable ? Number(row.quantityAvailable || 0) : 0;
-      const availableKg = isAvailable ? Number(row.weightKgAvailable || 0) : 0;
-      entry.rowCount += 1;
-      entry.availableQty += availableQty;
-      entry.availableKg += availableKg;
-      if (availableQty > 0 || availableKg > 0) entry.locations.add(row.warehouse?.name || 'انبار نامشخص');
+      const count = Number(row._count?._all || 0);
+      const physicalQty = Number(row._sum?.quantityOnHand || 0);
+      const physicalKg = Number(row._sum?.weightKgOnHand || 0);
+      entry.rowCount += count;
+      entry.physicalQty += physicalQty;
+      entry.physicalKg += physicalKg;
+      entry.reservedQty += Number(row._sum?.quantityReserved || 0);
+      if (row.qualityStatus === 'AVAILABLE') {
+        entry.availableQty += Number(row._sum?.quantityAvailable || 0);
+        entry.availableKg += Number(row._sum?.weightKgAvailable || 0);
+      } else {
+        entry.blockedQty += physicalQty;
+        entry.blockedKg += physicalKg;
+      }
       grouped.set(row.partId, entry);
     }
-    const data = Array.from(grouped.values()).map(entry => ({
-      partId: entry.partId,
-      rowCount: entry.rowCount,
-      availableQty: entry.availableQty,
-      availableKg: entry.availableKg,
-      locationsSummary: Array.from(entry.locations),
-    }));
+    for (const row of locations as any[]) {
+      const entry = grouped.get(row.partId);
+      if (entry && row.warehouse?.name && !entry.locationsSummary.includes(row.warehouse.name)) {
+        entry.locationsSummary.push(row.warehouse.name);
+      }
+    }
+    const data = Array.from(grouped.values());
     res.json({ success: true, source: 'POSTGRESQL_STOCK_BALANCE_PART_SUMMARY', data });
   } catch (error) {
     res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'خطا در محاسبه خلاصه موجودی کالاها' });
