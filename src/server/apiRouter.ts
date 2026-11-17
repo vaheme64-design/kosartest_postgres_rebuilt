@@ -2940,8 +2940,14 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
           } else {
             groupWhere.AND = [...(groupWhere.AND || []), { OR: [
               { physicalCoil: { is: { coilPackNumber: groupKey } } },
-              { materialLot: { is: { lotNumber: groupKey } } },
-              { physicalCoil: { is: { coilId: groupKey } } },
+              { AND: [
+                { materialLot: { is: { lotNumber: groupKey } } },
+                { OR: [{ physicalCoil: { is: null } }, { physicalCoil: { is: { coilPackNumber: null } } }] },
+              ] },
+              { AND: [
+                { physicalCoil: { is: { coilId: groupKey, coilPackNumber: null } } },
+                { materialLot: { is: null } },
+              ] },
             ] }];
           }
           break;
@@ -2951,15 +2957,11 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
           break;
         case 'THICKNESS':
           if (groupKey === 'NO_THICK') {
-            groupWhere.AND = [...(groupWhere.AND || []), { part: { thicknessMm: null } }, { materialLot: { is: { thicknessMm: null } } }, { physicalCoil: { is: { thicknessMm: null } } }];
+            groupWhere.part = { ...(groupWhere.part || {}), thicknessMm: null };
           } else {
             const thickness = Number(groupKey);
             if (!Number.isFinite(thickness) || thickness <= 0) return res.status(400).json({ success: false, error: 'ضخامت گروه معتبر نیست.' });
-            groupWhere.AND = [...(groupWhere.AND || []), { OR: [
-              { part: { thicknessMm: thickness } },
-              { materialLot: { is: { thicknessMm: thickness } } },
-              { physicalCoil: { is: { thicknessMm: thickness } } },
-            ] }];
+            groupWhere.part = { ...(groupWhere.part || {}), thicknessMm: thickness };
           }
           break;
       }
