@@ -618,6 +618,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
 
       {/* DEDICATED PAGE: Reorder Point Alerts & Material Shortages (ALERTS Sub-Tab) */}
       {activeSubTab === 'ALERTS' && (
+        <>
         {partStockSummaryError && (
           <div role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
             محاسبه هشدارهای نقطه سفارش متوقف شد؛ خلاصه موجودی PostgreSQL در دسترس نیست: {partStockSummaryError}
@@ -844,6 +845,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
             )}
           </div>
         </div>
+        </>
       )}
 
       {/* Sub-Tab 1: Dashboard */}
