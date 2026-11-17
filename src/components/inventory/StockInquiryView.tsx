@@ -1024,7 +1024,9 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
             </div>
 
             <div className="max-h-[640px] overflow-y-auto divide-y divide-slate-100">
-              {catalogPartsWithStock.map(item => {
+              {partSummaryError ? (
+                <div role="alert" className="p-3 text-xs text-rose-700 bg-rose-50">{partSummaryError}</div>
+              ) : catalogPartsWithStock.map(item => {
                 const isSelected =
                   activeCardexPartSummary?.part.id === item.part.id;
                 return (
@@ -1188,7 +1190,11 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                       </span>
                     </h4>
 
-                    {activeCardexPartSummary.balances.length === 0 ? (
+                    {selectedPartBalancesLoading ? (
+                      <div className="p-4 text-xs text-slate-500 text-center">در حال دریافت جزئیات موجودی کالای انتخاب‌شده...</div>
+                    ) : selectedPartBalancesError ? (
+                      <div role="alert" className="p-4 text-xs text-rose-700 bg-rose-50">{selectedPartBalancesError}</div>
+                    ) : selectedPartBalances.length === 0 ? (
                       <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 text-center">
                         در حال حاضر هیچ موجودی فعالی برای این قطعه در انبارها ثبت نشده است.
                       </div>
