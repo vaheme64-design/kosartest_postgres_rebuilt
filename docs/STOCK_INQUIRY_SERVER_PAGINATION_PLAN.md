@@ -20,6 +20,13 @@ CI run: [43836068689](https://github.com/vaheme64-design/kosartest_postgres_rebu
 
 Still open: grouped inquiry is calculated from the full parent-provided balance collection; the parent module still loads the full stock-balance list for operational forms and legacy consumers. These must be migrated before removing that fetch.
 
+
+- The Cardex part selector migration is now connected to the view: its summary is database-aggregated by part/quality status, and selected-part stock detail is fetched separately (up to 200 rows per request). The StockInquiryView no longer accepts the parent full-balance prop; its list, KPI summary, facets, grouped totals, group detail, Cardex ledger and selected-part stock detail are API-backed.
+- The dashboard no longer receives detailed balances and no longer calculates warehouse cards from a full-balance fallback. It displays an explicit unavailable state when the warehouse summary API fails.
+- Reorder alerts no longer fall back to the full balance array when the per-part summary fails. In that case alert calculation is stopped and an explicit error is shown; stage inventory remains the intentional fallback only when a successful warehouse summary confirms no warehouse rows for that part.
+- Issue, Transfer and Adjustment modals no longer receive the parent balances collection; their stock lookups are scoped to the selected part/warehouse.
+- The parent InventoryModuleView no longer calls `GET /api/inventory/stock-inquiry` without pagination and no longer stores a module-wide `balances` array. The remaining WIP stage report uses its separate stage-balance data source.
+
 ## Current verified behavior
 - `GET /api/inventory/stock-inquiry` reads relational `StockBalance` data and already accepts pagination and several filters.
 - The API response includes `data`, `total`, `page`, `pageSize`, and `totalPages`.
@@ -118,8 +125,8 @@ The module-wide full-balance dependency is **not removed**. The following scoped
 | `AdjustmentFormModal` | Loads stock rows for selected part and warehouse from PostgreSQL; current balance selection uses this scoped result. | Commit `61712f0`; CI run [43862849837](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43862849837) — success. |
 | `StockInquiryView` grouped rows | Group headers come from the grouped API; expanded details are fetched per group in 50-row pages. | Group header endpoint still loads all filtered StockBalance rows in server memory; replace with database-level aggregation. |
 | `StockInquiryView` part/Cardex selector | Totals and warehouse locations use DB-grouped per-part summary; selected part detail loads through the paginated stock inquiry API. Cardex history remains independently PostgreSQL-backed. | Validate full selector workflow; selected-part detail currently requests up to 200 rows in one page. |
-| `InventoryDashboard` | Warehouse summary is used, but the component retains a full-balance fallback. | Remove fallback only after summary errors are surfaced explicitly; do not display a false zero. |
-| Reorder alerts | Uses per-part PostgreSQL summary first, but still has a full-balance fallback. | Remove fallback only after summary failures are explicit data errors. |
+| `InventoryDashboard` | No longer receives detailed balances; warehouse cards use the summary endpoint and show unavailable state on error. | Complete end-to-end acceptance against real factory data. |
+| Reorder alerts | Uses per-part PostgreSQL summary; stops calculation and displays an error if the summary fails. | Complete end-to-end acceptance against real factory data. |
 | Parent inventory module | Still calls `/api/inventory/stock-inquiry` without pagination and stores all returned balances. | Keep until grouped inquiry, Cardex selector, dashboard, reorder alerts and any remaining consumers are migrated. |
 
 ### Updated safe next sequence
