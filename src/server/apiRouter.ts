@@ -3011,100 +3011,115 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
       return res.json({ success: true, source: 'POSTGRESQL_STOCK_BALANCE_GROUP_DETAILS', groupBy, groupKey, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)), data });
     }
 
-    const rows = await prisma.stockBalance.findMany({
-      where,
-      select: {
-        id: true,
-        partId: true,
-        warehouseId: true,
-        ownership: true,
-        contractNumber: true,
-        quantityOnHand: true,
-        quantityAvailable: true,
-        quantityReserved: true,
-        weightKgOnHand: true,
-        weightKgAvailable: true,
-        weightKgReserved: true,
-        qualityStatus: true,
-        part: { select: { name: true, partNumber: true, thicknessMm: true, material: { select: { grade: true } } } },
-        warehouse: { select: { name: true } },
-        materialLot: { select: { lotNumber: true } },
-        physicalCoil: { select: { coilId: true, coilPackNumber: true, thicknessMm: true } },
-      },
-    });
+    // Use PostgreSQL GROUP BY so the server never materializes the full filtered balance set.
+    const sqlParams: unknown[] = [];
+    const bind = (value: unknown) => {
+      sqlParams.push(value);
+      return `$${sqlParams.length}`;
+    };
+    const clauses: string[] = [];
+    const partId = queryValue('partId');
+    const materialGrade = queryValue('materialGrade');
+    const warehouseId = queryValue('warehouseId');
+    const locationCode = queryValue('locationCode');
+    const ownership = queryValue('ownership');
+    const contractNumber = queryValue('contractNumber');
+    const lotNumber = queryValue('lotNumber');
+    const coilPackNumber = queryValue('coilPackNumber');
+    const thicknessRaw = queryValue('thicknessMm');
+    const search = queryValue('search');
+    if (partId && partId !== 'ALL') {
+      const value = bind(partId);
+      clauses.push(`(sb."partId" = ${value} OR p."partNumber" = ${value})`);
+    }
+    if (materialGrade && materialGrade !== 'ALL') clauses.push(`m.grade = ${bind(materialGrade)}`);
+    if (warehouseId && warehouseId !== 'ALL') clauses.push(`sb."warehouseId" = ${bind(warehouseId)}`);
+    if (locationCode && locationCode !== 'ALL') clauses.push(`wl.code = ${bind(locationCode)}`);
+    if (ownership && ownership !== 'ALL') clauses.push(`sb.ownership = ${bind(ownership)}`);
+    if (contractNumber && contractNumber !== 'ALL') clauses.push(`sb."contractNumber" = ${bind(contractNumber)}`);
+    if (lotNumber && lotNumber !== 'ALL') {
+      const value = bind(lotNumber);
+      clauses.push(`(ml."lotNumber" = ${value} OR pc."coilId" = ${value})`);
+    }
+    if (coilPackNumber && coilPackNumber !== 'ALL') clauses.push(`pc."coilPackNumber" = ${bind(coilPackNumber)}`);
+    if (thicknessRaw !== undefined) {
+      const thickness = Number(thicknessRaw);
+      const value = bind(thickness);
+      clauses.push(`(p."thicknessMm" = ${value} OR ml."thicknessMm" = ${value} OR pc."thicknessMm" = ${value})`);
+    }
+    if (search) {
+      const value = bind(`%${search}%`);
+      clauses.push(`(
+        p.name ILIKE ${value} OR p."partNumber" ILIKE ${value} OR m.grade ILIKE ${value} OR
+        ml."lotNumber" ILIKE ${value} OR ml."heatNumber" ILIKE ${value} OR
+        pc."coilId" ILIKE ${value} OR pc."coilPackNumber" ILIKE ${value} OR
+        pc."heatNumber" ILIKE ${value} OR w.name ILIKE ${value} OR sb."contractNumber" ILIKE ${value}
+      )`);
+    }
+    if (queryValue('onlyAvailable') === 'true') clauses.push(`sb."quantityAvailable" > 0 AND sb."qualityStatus" = 'AVAILABLE'`);
+    if (queryValue('onlyNonZero') === 'true') {
+      clauses.push(`(sb."quantityOnHand" > 0 OR sb."quantityReserved" > 0 OR sb."weightKgOnHand" > 0)`);
+    }
 
-    const groups = new Map<string, {
+    const groupExpressions: Record<string, { key: string; title: string }> = {
+      PART: { key: 'sb."partId"::text', title: `MAX(p.name || ' (' || p."partNumber" || ')')` },
+      WAREHOUSE: { key: 'sb."warehouseId"::text', title: 'MAX(w.name)' },
+      OWNERSHIP: {
+        key: `COALESCE(sb.ownership, 'COMPANY_OWNED')`,
+        title: `CASE WHEN COALESCE(sb.ownership, 'COMPANY_OWNED') = 'SAPCO_SUPPLIER_OWNED' THEN 'ورق و اقلام امانی ساپکو' ELSE 'مالکیت شرکت کوثر' END`,
+      },
+      CONTRACT: {
+        key: `COALESCE(sb."contractNumber", 'FREE')`,
+        title: `CASE WHEN sb."contractNumber" IS NULL THEN 'آزاد / بدون قرارداد مشخص' ELSE 'قرارداد شماره ' || sb."contractNumber" END`,
+      },
+      COIL_PACK: {
+        key: `COALESCE(NULLIF(pc."coilPackNumber", ''), ml."lotNumber", pc."coilId", 'NO_LOT')`,
+        title: `CASE WHEN COALESCE(NULLIF(pc."coilPackNumber", ''), ml."lotNumber", pc."coilId", 'NO_LOT') = 'NO_LOT' THEN 'بدون شماره کویل‌پک' ELSE 'کویل‌پک / بچ: ' || COALESCE(NULLIF(pc."coilPackNumber", ''), ml."lotNumber", pc."coilId") END`,
+      },
+      GRADE: {
+        key: `COALESCE(m.grade, 'OTHER')`,
+        title: `CASE WHEN m.grade IS NULL THEN 'سایر اقلام (پیچ، مهره، لاستیک و قطعات)' ELSE 'جنس / گرید ورق: ' || m.grade END`,
+      },
+      THICKNESS: {
+        key: `COALESCE(p."thicknessMm"::text, 'NO_THICK')`,
+        title: `CASE WHEN p."thicknessMm" IS NULL THEN 'اقلام غیرورق (بدون ضخامت)' ELSE 'ضخامت ورق: ' || p."thicknessMm"::text || ' میلی‌متر' END`,
+      },
+    };
+    const groupExpression = groupExpressions[groupBy];
+    const sql = `
+      SELECT
+        ${groupExpression.key} AS "groupKey",
+        ${groupExpression.title} AS "groupTitle",
+        COUNT(*)::int AS "rowCount",
+        COUNT(*) FILTER (WHERE ml."lotNumber" IS NOT NULL OR pc."coilId" IS NOT NULL)::int AS "coilsCount",
+        COALESCE(SUM(sb."weightKgOnHand"), 0)::float8 AS "totalPhysicalKg",
+        COALESCE(SUM(CASE WHEN sb."qualityStatus" = 'AVAILABLE' THEN sb."weightKgAvailable" ELSE 0 END), 0)::float8 AS "totalAvailableKg",
+        COALESCE(SUM(sb."quantityOnHand"), 0)::float8 AS "totalPhysicalQty",
+        COALESCE(SUM(CASE WHEN sb."qualityStatus" = 'AVAILABLE' THEN sb."quantityAvailable" ELSE 0 END), 0)::float8 AS "totalAvailableQty",
+        COALESCE(SUM(sb."quantityReserved"), 0)::float8 AS "totalReservedQty"
+      FROM stock_balances sb
+      LEFT JOIN parts p ON p.id = sb."partId"
+      LEFT JOIN materials m ON m.id = p."materialId"
+      LEFT JOIN warehouses w ON w.id = sb."warehouseId"
+      LEFT JOIN warehouse_locations wl ON wl.id = sb."locationId"
+      LEFT JOIN material_lots ml ON ml.id = sb."materialLotId"
+      LEFT JOIN physical_coils pc ON pc.id = sb."physicalCoilId"
+      ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
+      GROUP BY ${groupExpression.key}, ${groupExpression.title}
+      ORDER BY "totalPhysicalKg" DESC
+    `;
+    const data = await prisma.$queryRawUnsafe(sql, ...sqlParams) as Array<{
       groupKey: string; groupTitle: string; rowCount: number; coilsCount: number;
       totalPhysicalKg: number; totalAvailableKg: number; totalPhysicalQty: number;
       totalAvailableQty: number; totalReservedQty: number;
-    }>();
-    for (const row of rows as any[]) {
-      const ownership = row.ownership || 'COMPANY_OWNED';
-      const lotNumber = row.materialLot?.lotNumber || row.physicalCoil?.coilId;
-      let key = 'نامشخص';
-      let title = 'نامشخص';
-      switch (groupBy) {
-        case 'PART':
-          key = row.partId;
-          title = `${row.part.name} (${row.part.partNumber})`;
-          break;
-        case 'WAREHOUSE':
-          key = row.warehouseId;
-          title = row.warehouse.name;
-          break;
-        case 'OWNERSHIP':
-          key = ownership;
-          title = ownership === 'SAPCO_SUPPLIER_OWNED' ? 'ورق و اقلام امانی ساپکو' : 'مالکیت شرکت کوثر';
-          break;
-        case 'CONTRACT':
-          key = row.contractNumber || 'FREE';
-          title = row.contractNumber ? `قرارداد شماره ${row.contractNumber}` : 'آزاد / بدون قرارداد مشخص';
-          break;
-        case 'COIL_PACK': {
-          const pack = row.physicalCoil?.coilPackNumber || lotNumber;
-          key = pack || 'NO_LOT';
-          title = pack ? `کویل‌پک / بچ: ${pack}` : 'بدون شماره کویل‌پک';
-          break;
-        }
-        case 'GRADE':
-          key = row.part.material?.grade || 'OTHER';
-          title = row.part.material?.grade ? `جنس / گرید ورق: ${row.part.material.grade}` : 'سایر اقلام (پیچ، مهره، لاستیک و قطعات)';
-          break;
-        case 'THICKNESS': {
-          const thickness = row.part.thicknessMm == null ? undefined : Number(row.part.thicknessMm);
-          key = thickness ? String(thickness) : 'NO_THICK';
-          title = thickness ? `ضخامت ورق: ${thickness} میلی‌متر` : 'اقلام غیرورق (بدون ضخامت)';
-          break;
-        }
-      }
-      const current = groups.get(key) || {
-        groupKey: key, groupTitle: title, rowCount: 0, coilsCount: 0,
-        totalPhysicalKg: 0, totalAvailableKg: 0, totalPhysicalQty: 0,
-        totalAvailableQty: 0, totalReservedQty: 0,
-      };
-      const physicalQty = Number(row.quantityOnHand || 0);
-      const physicalKg = Number(row.weightKgOnHand || 0);
-      const availableQty = row.qualityStatus === 'AVAILABLE'
-        ? Number(row.quantityAvailable ?? Math.max(0, physicalQty - Number(row.quantityReserved || 0))) : 0;
-      const availableKg = row.qualityStatus === 'AVAILABLE'
-        ? Number(row.weightKgAvailable ?? Math.max(0, physicalKg - Number(row.weightKgReserved || 0))) : 0;
-      current.rowCount += 1;
-      if (lotNumber) current.coilsCount += 1;
-      current.totalPhysicalKg += physicalKg;
-      current.totalAvailableKg += availableKg;
-      current.totalPhysicalQty += physicalQty;
-      current.totalAvailableQty += availableQty;
-      current.totalReservedQty += Number(row.quantityReserved || 0);
-      groups.set(key, current);
-    }
-
-    const data = Array.from(groups.values()).sort((a, b) => b.totalPhysicalKg - a.totalPhysicalKg);
+    }>;
+    const totalRows = data.reduce((sum, group) => sum + Number(group.rowCount || 0), 0);
     return res.json({
       success: true,
       source: 'POSTGRESQL_STOCK_BALANCE_GROUPS',
       groupBy,
       totalGroups: data.length,
-      totalRows: rows.length,
+      totalRows,
       data,
     });
   } catch (error) {
