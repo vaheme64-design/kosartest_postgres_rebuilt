@@ -3082,7 +3082,7 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
         title: `MAX(CASE WHEN m.grade IS NULL THEN 'سایر اقلام (پیچ، مهره، لاستیک و قطعات)' ELSE 'جنس / گرید ورق: ' || m.grade END)`,
       },
       THICKNESS: {
-        key: `COALESCE(p."thicknessMm"::text, 'NO_THICK')`,
+        key: `COALESCE(p."thicknessMm"::float8::text, 'NO_THICK')`,
         title: `MAX(CASE WHEN p."thicknessMm" IS NULL THEN 'اقلام غیرورق (بدون ضخامت)' ELSE 'ضخامت ورق: ' || p."thicknessMm"::text || ' میلی‌متر' END)`,
       },
     };
