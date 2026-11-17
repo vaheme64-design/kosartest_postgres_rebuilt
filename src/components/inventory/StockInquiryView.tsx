@@ -292,13 +292,65 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [savedViewNotice, setSavedViewNotice] = useState(false);
 
-  // Select a default Cardex part once the catalog is available.
+  // Part selector totals and locations come from server-side aggregates, not the full balances prop.
+  useEffect(() => {
+    const controller = new AbortController();
+    setPartSummaryError('');
+    fetch('/api/inventory/stock-inquiry/part-summary', { signal: controller.signal })
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+          throw new Error(result?.error || 'دریافت خلاصه موجودی کالاها ناموفق بود.');
+        }
+        setServerPartSummaries(result.data);
+      })
+      .catch(error => {
+        if (error?.name === 'AbortError') return;
+        setServerPartSummaries([]);
+        setPartSummaryError(error instanceof Error ? error.message : 'خطا در دریافت خلاصه موجودی کالاها');
+      });
+    return () => controller.abort();
+  }, [inquiryRefreshToken]);
+
+  // Select the first part with stock from the server summary; no full balance scan is required.
   useEffect(() => {
     if (!selectedCardexPartId && parts.length > 0) {
-      const partWithStock = parts.find(p => balances.some(b => b.partId === p.id || b.partCode === p.code));
-      setSelectedCardexPartId((partWithStock || parts[0]).id);
+      const firstWithStock = parts.find(part => serverPartSummaries.some(summary => summary.partId === part.id && summary.rowCount > 0));
+      setSelectedCardexPartId((firstWithStock || parts[0]).id);
     }
-  }, [parts, balances, selectedCardexPartId]);
+  }, [parts, serverPartSummaries, selectedCardexPartId]);
+
+  // Load stock detail only for the selected Cardex part.
+  useEffect(() => {
+    const selectedPart = parts.find(part => part.id === selectedCardexPartId || part.code === selectedCardexPartId);
+    if (!selectedPart) {
+      setSelectedPartBalances([]);
+      setSelectedPartBalancesError('');
+      setSelectedPartBalancesLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams({ partId: selectedPart.id, page: '1', limit: '200' });
+    setSelectedPartBalancesLoading(true);
+    setSelectedPartBalancesError('');
+    fetch(`/api/inventory/stock-inquiry?${params.toString()}`, { signal: controller.signal })
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+          throw new Error(result?.error || 'دریافت جزئیات موجودی کالای انتخاب‌شده ناموفق بود.');
+        }
+        setSelectedPartBalances(result.data);
+      })
+      .catch(error => {
+        if (error?.name === 'AbortError') return;
+        setSelectedPartBalances([]);
+        setSelectedPartBalancesError(error instanceof Error ? error.message : 'خطا در دریافت جزئیات موجودی کالا');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSelectedPartBalancesLoading(false);
+      });
+    return () => controller.abort();
+  }, [parts, selectedCardexPartId, inquiryRefreshToken]);
 
   // Load only the selected part's immutable PostgreSQL ledger; never download every inventory document.
   useEffect(() => {
@@ -366,6 +418,16 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     materialGrades: string[];
     thicknesses: number[];
   } | null>(null);
+  const [serverPartSummaries, setServerPartSummaries] = useState<Array<{
+    partId: string; rowCount: number; physicalQty: number; availableQty: number;
+    reservedQty: number; blockedQty: number; physicalKg: number; availableKg: number;
+    blockedKg: number; locationsSummary: string[];
+  }>>([]);
+  const [partSummaryError, setPartSummaryError] = useState('');
+  const [selectedPartBalances, setSelectedPartBalances] = useState<DetailedStockBalance[]>([]);
+  const [selectedPartBalancesLoading, setSelectedPartBalancesLoading] = useState(false);
+  const [selectedPartBalancesError, setSelectedPartBalancesError] = useState('');
+
 
   // Sorting
   const [sortField, setSortField] = useState<keyof DetailedStockBalance>('availableQty');
@@ -769,53 +831,43 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     return 1000; // Default 1,000 pcs reorder threshold for components
   };
 
-  // Master-Detail Part List with aggregated stock & Reorder Point status for PART_CARDEX mode
+  // Master-Detail Part List uses server aggregates; detailed stock is fetched only for the selected part.
   const catalogPartsWithStock = useMemo(() => {
     const q = partSearchQuery.trim().toLowerCase();
+    const summaryByPart = new Map(serverPartSummaries.map(summary => [summary.partId, summary]));
     return parts
-      .map(p => {
-        const pBalances = balances.filter(b => b.partId === p.id || b.partCode === p.code);
-        const physicalTotal = pBalances.reduce((s, b) => s + b.physicalQty, 0);
-        const availableTotal = pBalances.reduce((s, b) => s + b.availableQty, 0);
-        const lotsCount = pBalances.length;
-        const reorderPoint = getPartReorderPoint(p);
+      .map(part => {
+        const summary = summaryByPart.get(part.id);
+        const physicalTotal = summary?.physicalQty || 0;
+        const availableTotal = summary?.availableQty || 0;
+        const lotsCount = summary?.rowCount || 0;
+        const reorderPoint = getPartReorderPoint(part);
         const needsPurchase = availableTotal < reorderPoint;
         const isCriticalShortage = availableTotal <= reorderPoint * 0.5;
-        const isVIP = isPartVip(p, vipMap);
-        const blockedTotal = pBalances.reduce((s, b) => s + (b.qualityBlockedQty || 0), 0);
+        const isVIP = isPartVip(part, vipMap);
+        const blockedTotal = summary?.blockedQty || 0;
         return {
-          part: { ...p, isVIP, isPinned: isVIP },
-          isVIP,
-          physicalTotal,
-          availableTotal,
-          blockedTotal,
-          lotsCount,
-          balances: pBalances,
-          reorderPoint,
-          needsPurchase,
-          isCriticalShortage,
+          part: { ...part, isVIP, isPinned: isVIP },
+          isVIP, physicalTotal, availableTotal, blockedTotal, lotsCount,
+          locationsSummary: summary?.locationsSummary || [],
+          reorderPoint, needsPurchase, isCriticalShortage,
         };
       })
       .filter(item => {
         if (onlyBelowReorderPoint && !item.needsPurchase) return false;
         if (!q) return true;
-        return (
-          item.part.name.toLowerCase().includes(q) ||
+        return item.part.name.toLowerCase().includes(q) ||
           item.part.code.toLowerCase().includes(q) ||
-          (item.part.materialGrade && item.part.materialGrade.toLowerCase().includes(q))
-        );
+          (item.part.materialGrade && item.part.materialGrade.toLowerCase().includes(q));
       })
       .sort((a, b) => {
-        // Priority 1: VIP parts with shortage first!
         if (a.isVIP && a.needsPurchase && !(b.isVIP && b.needsPurchase)) return -1;
         if (b.isVIP && b.needsPurchase && !(a.isVIP && a.needsPurchase)) return 1;
-        // Priority 2: VIP parts in general
         if (a.isVIP !== b.isVIP) return a.isVIP ? -1 : 1;
-        // Priority 3: Any part needing purchase
         if (a.needsPurchase !== b.needsPurchase) return a.needsPurchase ? -1 : 1;
         return b.physicalTotal - a.physicalTotal;
       });
-  }, [parts, balances, partSearchQuery, onlyBelowReorderPoint, vipMap]);
+  }, [parts, serverPartSummaries, partSearchQuery, onlyBelowReorderPoint, vipMap]);
 
   const activeCardexPartSummary =
     catalogPartsWithStock.find(
@@ -1132,7 +1184,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                       <Boxes className="w-4 h-4 text-blue-600" />
                       <span>
                         الف) تفکیک موجودی فعلی این کالا در انبارها و کویل‌پک‌ها (
-                        {toPersianDigits(activeCardexPartSummary.balances.length)} ردیف):
+                        {toPersianDigits(selectedPartBalances.length)} ردیف):
                       </span>
                     </h4>
 
@@ -1166,7 +1218,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {activeCardexPartSummary.balances.map(b => {
+                            {selectedPartBalances.map(b => {
                               const isHeld = b.qualityBlockedQty > 0;
                               return (
                                 <tr
