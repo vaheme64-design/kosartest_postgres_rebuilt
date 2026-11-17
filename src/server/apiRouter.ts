@@ -3066,23 +3066,23 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
       WAREHOUSE: { key: 'sb."warehouseId"::text', title: 'MAX(w.name)' },
       OWNERSHIP: {
         key: `COALESCE(sb.ownership, 'COMPANY_OWNED')`,
-        title: `CASE WHEN COALESCE(sb.ownership, 'COMPANY_OWNED') = 'SAPCO_SUPPLIER_OWNED' THEN 'ورق و اقلام امانی ساپکو' ELSE 'مالکیت شرکت کوثر' END`,
+        title: `MAX(CASE WHEN COALESCE(sb.ownership, 'COMPANY_OWNED') = 'SAPCO_SUPPLIER_OWNED' THEN 'ورق و اقلام امانی ساپکو' ELSE 'مالکیت شرکت کوثر' END)`,
       },
       CONTRACT: {
         key: `COALESCE(sb."contractNumber", 'FREE')`,
-        title: `CASE WHEN sb."contractNumber" IS NULL THEN 'آزاد / بدون قرارداد مشخص' ELSE 'قرارداد شماره ' || sb."contractNumber" END`,
+        title: `MAX(CASE WHEN sb."contractNumber" IS NULL THEN 'آزاد / بدون قرارداد مشخص' ELSE 'قرارداد شماره ' || sb."contractNumber" END)`,
       },
       COIL_PACK: {
         key: `COALESCE(NULLIF(pc."coilPackNumber", ''), ml."lotNumber", pc."coilId", 'NO_LOT')`,
-        title: `CASE WHEN COALESCE(NULLIF(pc."coilPackNumber", ''), ml."lotNumber", pc."coilId", 'NO_LOT') = 'NO_LOT' THEN 'بدون شماره کویل‌پک' ELSE 'کویل‌پک / بچ: ' || COALESCE(NULLIF(pc."coilPackNumber", ''), ml."lotNumber", pc."coilId") END`,
+        title: `MAX(CASE WHEN COALESCE(NULLIF(pc."coilPackNumber", ''), ml."lotNumber", pc."coilId", 'NO_LOT') = 'NO_LOT' THEN 'بدون شماره کویل‌پک' ELSE 'کویل‌پک / بچ: ' || COALESCE(NULLIF(pc."coilPackNumber", ''), ml."lotNumber", pc."coilId") END)`,
       },
       GRADE: {
         key: `COALESCE(m.grade, 'OTHER')`,
-        title: `CASE WHEN m.grade IS NULL THEN 'سایر اقلام (پیچ، مهره، لاستیک و قطعات)' ELSE 'جنس / گرید ورق: ' || m.grade END`,
+        title: `MAX(CASE WHEN m.grade IS NULL THEN 'سایر اقلام (پیچ، مهره، لاستیک و قطعات)' ELSE 'جنس / گرید ورق: ' || m.grade END)`,
       },
       THICKNESS: {
         key: `COALESCE(p."thicknessMm"::text, 'NO_THICK')`,
-        title: `CASE WHEN p."thicknessMm" IS NULL THEN 'اقلام غیرورق (بدون ضخامت)' ELSE 'ضخامت ورق: ' || p."thicknessMm"::text || ' میلی‌متر' END`,
+        title: `MAX(CASE WHEN p."thicknessMm" IS NULL THEN 'اقلام غیرورق (بدون ضخامت)' ELSE 'ضخامت ورق: ' || p."thicknessMm"::text || ' میلی‌متر' END)`,
       },
     };
     const groupExpression = groupExpressions[groupBy];
@@ -3105,7 +3105,7 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
       LEFT JOIN material_lots ml ON ml.id = sb."materialLotId"
       LEFT JOIN physical_coils pc ON pc.id = sb."physicalCoilId"
       ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
-      GROUP BY ${groupExpression.key}, ${groupExpression.title}
+      GROUP BY ${groupExpression.key}
       ORDER BY "totalPhysicalKg" DESC
     `;
     const data = await prisma.$queryRawUnsafe(sql, ...sqlParams) as Array<{
