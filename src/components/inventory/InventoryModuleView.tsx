@@ -461,7 +461,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
         </div>
       )}
 
-      {/* Grafana-Inspired Clean Header & Unified Flat Section Toolbar (No Nested Sub-Tab Rows) */}
+      {/* Enterprise task header and persistent section navigation shell */}
       <div className="bg-white p-4 lg:p-5 rounded-xl border border-slate-200/90 shadow-2xs space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-start sm:items-center gap-3.5">
@@ -473,7 +473,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
                 مرکز فرماندهی انبار، رول‌های ورق و قراردادها
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                عملیات روزانه انبار را با دکمه‌های سریع انجام دهید یا بخش مورد نظر خود را از فیلتر یکپارچه زیر انتخاب کنید
+                عملیات پرتکرار را از نوار اقدام اجرا کنید و بخش کاری را از ناوبری ثابت انتخاب کنید
               </p>
             </div>
           </div>
