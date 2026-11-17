@@ -230,6 +230,9 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
       }
     } catch (err) {
       console.error('Error fetching inventory module data:', err);
+      const message = err instanceof Error ? err.message : 'خطای ارتباط با سرور';
+      setWarehouseStockSummaryError(message);
+      setPartStockSummaryError(message);
       setNotification({ type: 'error', message: 'خطا در بارگذاری اطلاعات انبارداری' });
     } finally {
       setLoading(false);
