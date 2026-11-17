@@ -20,7 +20,6 @@ import {
 } from 'lucide-react';
 import {
   InventoryDashboardMetrics,
-  DetailedStockBalance,
   SapcoContract,
   WarehouseDefinition,
 } from '../../types/inventory';
@@ -31,7 +30,6 @@ interface InventoryDashboardProps {
   metrics: InventoryDashboardMetrics | null;
   contracts: SapcoContract[];
   warehouses: WarehouseDefinition[];
-  balances: DetailedStockBalance[];
   warehouseStockSummary: Record<string, { physicalKg: number; physicalPcs: number; lotsCount: number; rowCount: number }>;
   warehouseStockSummaryError: string;
   loading: boolean;
@@ -50,7 +48,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
   metrics,
   contracts,
   warehouses,
-  balances,
   warehouseStockSummary,
   warehouseStockSummaryError,
   loading,
@@ -64,7 +61,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
   onNavigateToSapco,
   onNavigateToLedger,
 }) => {
-  if (loading && !metrics && balances.length === 0) {
+  if (loading && !metrics) {
     return (
       <div className="space-y-6">
         <KpiCardsSkeleton count={4} columns={4} theme="light" />
