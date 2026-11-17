@@ -366,6 +366,10 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [selectedPartBalances, setSelectedPartBalances] = useState<DetailedStockBalance[]>([]);
   const [selectedPartBalancesLoading, setSelectedPartBalancesLoading] = useState(false);
   const [selectedPartBalancesError, setSelectedPartBalancesError] = useState('');
+  const [selectedPartBalancesPage, setSelectedPartBalancesPage] = useState(1);
+  const [selectedPartBalancesTotalPages, setSelectedPartBalancesTotalPages] = useState(1);
+  const [selectedPartBalancesTotal, setSelectedPartBalancesTotal] = useState(0);
+
 
 
   // Part selector totals and locations come from server-side aggregates, not the full balances prop.
@@ -402,11 +406,14 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     if (!selectedPart) {
       setSelectedPartBalances([]);
       setSelectedPartBalancesError('');
+      setSelectedPartBalancesPage(1);
+      setSelectedPartBalancesTotalPages(1);
+      setSelectedPartBalancesTotal(0);
       setSelectedPartBalancesLoading(false);
       return;
     }
     const controller = new AbortController();
-    const params = new URLSearchParams({ partId: selectedPart.id, page: '1', limit: '200' });
+    const params = new URLSearchParams({ partId: selectedPart.id, page: '1', limit: '50' });
     setSelectedPartBalancesLoading(true);
     setSelectedPartBalancesError('');
     fetch(`/api/inventory/stock-inquiry?${params.toString()}`, { signal: controller.signal })
@@ -416,6 +423,9 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
           throw new Error(result?.error || 'دریافت جزئیات موجودی کالای انتخاب‌شده ناموفق بود.');
         }
         setSelectedPartBalances(result.data);
+        setSelectedPartBalancesPage(Number(result.page || 1));
+        setSelectedPartBalancesTotalPages(Number(result.totalPages || 1));
+        setSelectedPartBalancesTotal(Number(result.total || result.data.length));
       })
       .catch(error => {
         if (error?.name === 'AbortError') return;
@@ -746,6 +756,30 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   // Cardex rows are returned in reverse chronology with running balances computed by the PostgreSQL ledger.
   const selectedPartCardexRows = cardexRows;
 
+  const loadMoreSelectedPartBalances = async () => {
+    const selectedPart = parts.find(part => part.id === selectedCardexPartId || part.code === selectedCardexPartId);
+    if (!selectedPart || selectedPartBalancesPage >= selectedPartBalancesTotalPages || selectedPartBalancesLoading) return;
+    const nextPage = selectedPartBalancesPage + 1;
+    const params = new URLSearchParams({ partId: selectedPart.id, page: String(nextPage), limit: '50' });
+    setSelectedPartBalancesLoading(true);
+    setSelectedPartBalancesError('');
+    try {
+      const response = await fetch(`/api/inventory/stock-inquiry?${params.toString()}`);
+      const result = await response.json();
+      if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+        throw new Error(result?.error || 'دریافت صفحه بعدی موجودی کالا ناموفق بود.');
+      }
+      setSelectedPartBalances(current => [...current, ...result.data]);
+      setSelectedPartBalancesPage(Number(result.page || nextPage));
+      setSelectedPartBalancesTotalPages(Number(result.totalPages || selectedPartBalancesTotalPages));
+      setSelectedPartBalancesTotal(Number(result.total || selectedPartBalancesTotal));
+    } catch (error) {
+      setSelectedPartBalancesError(error instanceof Error ? error.message : 'خطا در دریافت صفحه بعدی موجودی کالا');
+    } finally {
+      setSelectedPartBalancesLoading(false);
+    }
+  };
+
   const getDocTypeBadge = (docType: string) => {
     switch (docType) {
       case 'OPENING_BALANCE':
@@ -1055,7 +1089,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                       <Boxes className="w-4 h-4 text-blue-600" />
                       <span>
                         الف) تفکیک موجودی فعلی این کالا در انبارها و کویل‌پک‌ها (
-                        {toPersianDigits(selectedPartBalances.length)} ردیف):
+                        {toPersianDigits(selectedPartBalances.length)} از {toPersianDigits(selectedPartBalancesTotal)} ردیف):
                       </span>
                     </h4>
 
@@ -1154,6 +1188,14 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                             })}
                           </tbody>
                         </table>
+                      </div>
+                    )}
+                    {selectedPartBalancesPage < selectedPartBalancesTotalPages && (
+                      <div className="pt-2 text-center">
+                        <button type="button" onClick={() => void loadMoreSelectedPartBalances()} disabled={selectedPartBalancesLoading}
+                          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                          {selectedPartBalancesLoading ? 'در حال دریافت...' : 'بارگذاری ۵۰ ردیف بعدی'}
+                        </button>
                       </div>
                     )}
                   </div>
