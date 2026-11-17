@@ -29,6 +29,7 @@ async function run() {
   let user: any;
   let originalMoValues: any;
   let originalOperationValues: any;
+  let originalFinalOperationValues: any;
 
   try {
     // Clean leftovers from an interrupted run of this dedicated CI fixture.
@@ -58,16 +59,18 @@ async function run() {
     user = await prisma.user.findUnique({ where: { username: 'supervisor_press' } });
     if (!shift?.active || !user?.active) throw new Error('Active seeded shift and supervisor user are required.');
 
-    const [sourceRows, targetRows, scrapWarehouses] = await Promise.all([
+    const [sourceRows, targetRows, finalRows, scrapWarehouses] = await Promise.all([
       prisma.warehouseLocation.findMany({ where: { code: 'LOC-WIP-BLANK', active: true }, include: { warehouse: true } }),
       prisma.warehouseLocation.findMany({ where: { code: 'LOC-WIP-DRAWN', active: true }, include: { warehouse: true } }),
+      prisma.warehouseLocation.findMany({ where: { code: 'LOC-FIN-P1', active: true }, include: { warehouse: true } }),
       prisma.warehouse.findMany({ where: { type: 'SCRAP', active: true }, include: { locations: { where: { active: true }, orderBy: { code: 'asc' }, take: 1 } } }),
     ]);
-    if (sourceRows.length !== 1 || targetRows.length !== 1 || !scrapWarehouses[0]?.locations[0]) {
-      throw new Error('Unique active source/target and scrap locations are required by the test fixture.');
+    if (sourceRows.length !== 1 || targetRows.length !== 1 || finalRows.length !== 1 || !scrapWarehouses[0]?.locations[0]) {
+      throw new Error('Unique active source, intermediate, finished-goods and scrap locations are required by the test fixture.');
     }
     sourceLocation = sourceRows[0];
     targetLocation = targetRows[0];
+    const finalLocation = finalRows[0];
     scrapLocation = scrapWarehouses[0].locations[0];
 
     originalMoValues = { completedQty: relationalOrder.completedQty, scrapQty: relationalOrder.scrapQty };
@@ -79,6 +82,15 @@ async function run() {
       outputRejectedQty: operation10.outputRejectedQty,
       status: operation10.status,
       endDate: operation10.endDate,
+    };
+    originalFinalOperationValues = {
+      inputQty: operation20.inputQty,
+      outputGoodQty: operation20.outputGoodQty,
+      outputScrapQty: operation20.outputScrapQty,
+      outputReworkQty: operation20.outputReworkQty,
+      outputRejectedQty: operation20.outputRejectedQty,
+      status: operation20.status,
+      endDate: operation20.endDate,
     };
 
     const snapshot = await prisma.wipStateSnapshot.findUnique({ where: { id: 'production-wip-state' } });
@@ -174,23 +186,66 @@ async function run() {
     const movementCountAfterReplay = await prisma.inventoryTransaction.count({ where: { productionReportId: posted.report.id } });
     assert('Idempotent replay does not duplicate kardex movements', movementCountAfterReplay === 3);
 
+    // Treat operation 20 as the final route stage for this isolated fixture.
+    // Its good output must land in finished-goods stock, not another WIP location.
+    const finalStageSnapshot = {
+      manufacturingOrders: [{
+        id: wipMoId,
+        moNumber: wipMoId,
+        partCode: part.partNumber,
+        operations: [{
+          id: 'WIP-LEDGER-OP20',
+          stepNumber: 20,
+          sequence: 1,
+          processType: operation20.operation.processType,
+          warehouseLocation: 'LOC-WIP-DRAWN',
+          status: 'IN_PROGRESS',
+        }],
+      }],
+      wipTransfers: [],
+      productionLogs: [],
+    };
+    const finalStageInput = {
+      ...input,
+      wipOperationId: 'WIP-LEDGER-OP20',
+      idempotencyKey: 'test-wip-ledger-finished-goods-001',
+      machineId: operation20.plannedMachineId || operation10.plannedMachineId,
+      goodQty: 950,
+      scrapQty: 30,
+      expectedSnapshotVersion: originalSnapshotVersion + 1,
+      snapshotPayload: finalStageSnapshot,
+    };
+    const finalPosted = await postWipProductionAtomically(finalStageInput);
+    assert('Final operation posts 950 good and 30 scrap from the 980-piece intermediate balance',
+      !finalPosted.duplicate && Number(finalPosted.report.goodQuantity) === 950 && Number(finalPosted.report.scrapQuantity) === 30);
+    const [intermediateAfterFinal, finishedGoods, totalScrap, finalMovements] = await Promise.all([
+      prisma.stockBalance.findFirst({ where: { partId: part.id, locationId: targetLocation.id, ownership: testOwnership, contractId: testContractId, qualityStatus: 'AVAILABLE' } }),
+      prisma.stockBalance.findFirst({ where: { partId: part.id, locationId: finalLocation.id, ownership: testOwnership, contractId: testContractId, qualityStatus: 'AVAILABLE' } }),
+      prisma.stockBalance.findFirst({ where: { partId: part.id, locationId: scrapLocation.id, ownership: testOwnership, contractId: testContractId, qualityStatus: 'SCRAP' } }),
+      prisma.inventoryTransaction.findMany({ where: { productionReportId: finalPosted.report.id } }),
+    ]);
+    assert('Intermediate WIP balance is consumed to zero by final-stage reporting', Number(intermediateAfterFinal?.quantityOnHand) === 0);
+    assert('Final-stage good output is posted to LOC-FIN-P1 as finished goods', Number(finishedGoods?.quantityOnHand) === 950);
+    assert('Scrap ledger accumulates 50 pieces across both operations', Number(totalScrap?.quantityOnHand) === 50);
+    assert('Final production report links its finished-goods and scrap movements', finalMovements.length === 3);
+
     let rollbackRejected = false;
     try {
       await postWipProductionAtomically({
-        ...input,
+        ...finalStageInput,
         idempotencyKey: rollbackKey,
-        expectedSnapshotVersion: originalSnapshotVersion + 1,
+        expectedSnapshotVersion: originalSnapshotVersion + 2,
         goodQty: 1,
         scrapQty: 0,
       });
     } catch (error) {
       rollbackRejected = error instanceof Error && error.message.includes('Insufficient source WIP stock');
     }
-    assert('Insufficient source stock rejects posting', rollbackRejected);
+    assert('Insufficient source stock rejects final-stage posting', rollbackRejected);
     assert('Failed posting leaves no relational production report', !(await prisma.productionReport.findUnique({ where: { wipIdempotencyKey: rollbackKey } })));
-    assert('Failed posting leaves no extra inventory transactions', await prisma.inventoryTransaction.count({ where: { productionReportId: posted.report.id } }) === 3);
+    assert('Failed posting leaves no extra first-stage inventory transactions', await prisma.inventoryTransaction.count({ where: { productionReportId: posted.report.id } }) === 3);
 
-    console.log('ALL ATOMIC WIP PRODUCTION LEDGER TESTS PASSED');
+    console.log('ALL ATOMIC WIP PRODUCTION AND FINISHED-GOODS LEDGER TESTS PASSED');
   } finally {
     const reports = await prisma.productionReport.findMany({
       where: { wipIdempotencyKey: { in: [idempotencyKey, rollbackKey] } },
@@ -212,6 +267,12 @@ async function run() {
       await prisma.productionOperation.update({
         where: { id: operation10.id },
         data: originalOperationValues,
+      });
+    }
+    if (operation20 && originalFinalOperationValues) {
+      await prisma.productionOperation.update({
+        where: { id: operation20.id },
+        data: originalFinalOperationValues,
       });
     }
     if (snapshotCaptured && hadSnapshot) {
