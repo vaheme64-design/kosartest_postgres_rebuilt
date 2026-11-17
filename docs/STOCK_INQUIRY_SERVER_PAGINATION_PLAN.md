@@ -120,7 +120,7 @@ The module-wide full-balance dependency has been removed from the inventory modu
 | `AdjustmentFormModal` | Selected-part/warehouse query; no parent balances prop. | Manual adjustment workflow acceptance. |
 | `StockInquiryView` list/KPIs/facets | Paginated list, complete-result summary and facets from PostgreSQL. | Validate combined filters and page transitions on production-like data. |
 | `StockInquiryView` grouped rows | PostgreSQL `GROUP BY` headers; group details are fetched on expand in pages. | Expand all seven grouping dimensions against production-like coil, contract and WIP records. |
-| `StockInquiryView` part/Cardex selector | Database-aggregated part summary; selected-part stock detail and Cardex ledger are separate requests. | Add pagination for selected-part detail if any part can exceed 200 stock rows. |
+| `StockInquiryView` part/Cardex selector | Database-aggregated part summary; selected-part stock detail and Cardex ledger are separate requests. | Validate selected-part pagination for parts with many warehouse/coil rows. |
 | `InventoryDashboard` | Warehouse summary only; no full-balance fallback. Explicit unavailable state on summary failure. | Manual dashboard validation. |
 | Reorder alerts | Per-part PostgreSQL summary; stops calculations and surfaces errors if summary retrieval fails. Stage stock is used only when the successful warehouse summary has no rows. | Validate mixed warehouse/WIP and zero-stock scenarios. |
 | Parent inventory module | No unpaginated `/stock-inquiry` fetch and no module-wide `balances` state. | Confirm no external legacy component still expects the removed parent array. |
