@@ -496,6 +496,16 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     inquiryRefreshToken,
   ]);
 
+  useEffect(() => {
+    setExpandedGroupKey(null);
+    setGroupDetailPages({});
+    setGroupDetailErrors({});
+  }, [
+    groupBy, searchTerm, selectedPartFilter, selectedWarehouseFilter,
+    selectedOwnershipFilter, selectedGradeFilter, selectedThicknessFilter,
+    selectedCoilPackFilter, selectedContractFilter, selectedLotFilter, onlyAvailable,
+  ]);
+
   // Unique material grades
   const grades = useMemo(() => {
     if (serverFacets?.materialGrades.length) return serverFacets.materialGrades;
