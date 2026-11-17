@@ -895,7 +895,6 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
       {/* Sub-Tab 2: Stock Inquiry */}
       {activeSubTab === 'INQUIRY' && (
         <StockInquiryView
-          balances={balances}
           parts={parts}
           warehouses={warehouses}
           loading={loading}
