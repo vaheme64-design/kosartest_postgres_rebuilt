@@ -292,65 +292,6 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [savedViewNotice, setSavedViewNotice] = useState(false);
 
-  // Part selector totals and locations come from server-side aggregates, not the full balances prop.
-  useEffect(() => {
-    const controller = new AbortController();
-    setPartSummaryError('');
-    fetch('/api/inventory/stock-inquiry/part-summary', { signal: controller.signal })
-      .then(async response => {
-        const result = await response.json();
-        if (!response.ok || !result?.success || !Array.isArray(result.data)) {
-          throw new Error(result?.error || 'دریافت خلاصه موجودی کالاها ناموفق بود.');
-        }
-        setServerPartSummaries(result.data);
-      })
-      .catch(error => {
-        if (error?.name === 'AbortError') return;
-        setServerPartSummaries([]);
-        setPartSummaryError(error instanceof Error ? error.message : 'خطا در دریافت خلاصه موجودی کالاها');
-      });
-    return () => controller.abort();
-  }, [inquiryRefreshToken]);
-
-  // Select the first part with stock from the server summary; no full balance scan is required.
-  useEffect(() => {
-    if (!selectedCardexPartId && parts.length > 0) {
-      const firstWithStock = parts.find(part => serverPartSummaries.some(summary => summary.partId === part.id && summary.rowCount > 0));
-      setSelectedCardexPartId((firstWithStock || parts[0]).id);
-    }
-  }, [parts, serverPartSummaries, selectedCardexPartId]);
-
-  // Load stock detail only for the selected Cardex part.
-  useEffect(() => {
-    const selectedPart = parts.find(part => part.id === selectedCardexPartId || part.code === selectedCardexPartId);
-    if (!selectedPart) {
-      setSelectedPartBalances([]);
-      setSelectedPartBalancesError('');
-      setSelectedPartBalancesLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    const params = new URLSearchParams({ partId: selectedPart.id, page: '1', limit: '200' });
-    setSelectedPartBalancesLoading(true);
-    setSelectedPartBalancesError('');
-    fetch(`/api/inventory/stock-inquiry?${params.toString()}`, { signal: controller.signal })
-      .then(async response => {
-        const result = await response.json();
-        if (!response.ok || !result?.success || !Array.isArray(result.data)) {
-          throw new Error(result?.error || 'دریافت جزئیات موجودی کالای انتخاب‌شده ناموفق بود.');
-        }
-        setSelectedPartBalances(result.data);
-      })
-      .catch(error => {
-        if (error?.name === 'AbortError') return;
-        setSelectedPartBalances([]);
-        setSelectedPartBalancesError(error instanceof Error ? error.message : 'خطا در دریافت جزئیات موجودی کالا');
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setSelectedPartBalancesLoading(false);
-      });
-    return () => controller.abort();
-  }, [parts, selectedCardexPartId, inquiryRefreshToken]);
 
   // Load only the selected part's immutable PostgreSQL ledger; never download every inventory document.
   useEffect(() => {
@@ -428,6 +369,66 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const [selectedPartBalancesLoading, setSelectedPartBalancesLoading] = useState(false);
   const [selectedPartBalancesError, setSelectedPartBalancesError] = useState('');
 
+
+  // Part selector totals and locations come from server-side aggregates, not the full balances prop.
+  useEffect(() => {
+    const controller = new AbortController();
+    setPartSummaryError('');
+    fetch('/api/inventory/stock-inquiry/part-summary', { signal: controller.signal })
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+          throw new Error(result?.error || 'دریافت خلاصه موجودی کالاها ناموفق بود.');
+        }
+        setServerPartSummaries(result.data);
+      })
+      .catch(error => {
+        if (error?.name === 'AbortError') return;
+        setServerPartSummaries([]);
+        setPartSummaryError(error instanceof Error ? error.message : 'خطا در دریافت خلاصه موجودی کالاها');
+      });
+    return () => controller.abort();
+  }, [inquiryRefreshToken]);
+
+  // Select the first part with stock from the server summary; no full balance scan is required.
+  useEffect(() => {
+    if (!selectedCardexPartId && parts.length > 0) {
+      const firstWithStock = parts.find(part => serverPartSummaries.some(summary => summary.partId === part.id && summary.rowCount > 0));
+      setSelectedCardexPartId((firstWithStock || parts[0]).id);
+    }
+  }, [parts, serverPartSummaries, selectedCardexPartId]);
+
+  // Load stock detail only for the selected Cardex part.
+  useEffect(() => {
+    const selectedPart = parts.find(part => part.id === selectedCardexPartId || part.code === selectedCardexPartId);
+    if (!selectedPart) {
+      setSelectedPartBalances([]);
+      setSelectedPartBalancesError('');
+      setSelectedPartBalancesLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams({ partId: selectedPart.id, page: '1', limit: '200' });
+    setSelectedPartBalancesLoading(true);
+    setSelectedPartBalancesError('');
+    fetch(`/api/inventory/stock-inquiry?${params.toString()}`, { signal: controller.signal })
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+          throw new Error(result?.error || 'دریافت جزئیات موجودی کالای انتخاب‌شده ناموفق بود.');
+        }
+        setSelectedPartBalances(result.data);
+      })
+      .catch(error => {
+        if (error?.name === 'AbortError') return;
+        setSelectedPartBalances([]);
+        setSelectedPartBalancesError(error instanceof Error ? error.message : 'خطا در دریافت جزئیات موجودی کالا');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSelectedPartBalancesLoading(false);
+      });
+    return () => controller.abort();
+  }, [parts, selectedCardexPartId, inquiryRefreshToken]);
 
   // Sorting
   const [sortField, setSortField] = useState<keyof DetailedStockBalance>('availableQty');
