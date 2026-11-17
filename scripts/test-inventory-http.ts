@@ -8,6 +8,11 @@ const nonce = `HTTP-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 let coilId: string | undefined;
 let contractId: string | undefined;
 let server: import('node:http').Server | undefined;
+const deliveryDocumentNumbers: string[] = [];
+let finishedStockBefore: any = null;
+let finishedPartId: string | undefined;
+let finishedWarehouseId: string | undefined;
+let finishedLocationId: string | undefined;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -421,8 +426,154 @@ async function main() {
     assert(balanceKg === 95, `Expected stock ledger balance 95 kg, got ${balanceKg}.`);
     assert(issueRecords.length > 0 && Number(issueRecords[0].outstandingWeightKg) === 5 && Number(issueRecords[0].returnedWeightKg) === 15, 'Issue/return genealogy must reconcile to 5 kg outstanding and 15 kg returned.');
     console.log('PASS: HTTP lifecycle reconciles coil, lot, stock ledger and issue/return genealogy to 95 kg after concurrent returns.');
+
+    // Extend the material lifecycle through finished-goods receipt and customer delivery.
+    const [finishedPart, finishedWarehouse, finishedLocation] = await Promise.all([
+      prisma.part.findUnique({ where: { id: mo.partId }, include: { unit: true } }),
+      prisma.warehouse.findFirst({ where: { code: 'WH-FINISHED', active: true } }),
+      prisma.warehouseLocation.findFirst({ where: { code: 'LOC-FIN-P1', active: true } }),
+    ]);
+    assert(finishedPart && finishedWarehouse && finishedLocation && finishedLocation.warehouseId === finishedWarehouse.id,
+      'CI seed must contain the manufacturing-order finished part and the canonical finished-goods warehouse/location.');
+    const finishedAppPart = INITIAL_PARTS.find(part => part.code === finishedPart.partNumber);
+    assert(finishedAppPart, `No application part mapping found for finished part ${finishedPart.partNumber}.`);
+    finishedPartId = finishedPart.id;
+    finishedWarehouseId = finishedWarehouse.id;
+    finishedLocationId = finishedLocation.id;
+    finishedStockBefore = await prisma.stockBalance.findFirst({
+      where: {
+        partId: finishedPart.id,
+        warehouseId: finishedWarehouse.id,
+        locationId: finishedLocation.id,
+        ownership: 'COMPANY_OWNED',
+        qualityStatus: 'AVAILABLE',
+        contractId: null,
+        materialLotId: null,
+      },
+    });
+    const finishedQtyBefore = Number(finishedStockBefore?.quantityOnHand || 0);
+    const finishedWeightPerUnitKg = Number(finishedPart.weightNetKg || 1);
+    const receiptDocumentNumber = `${nonce}-FG-RECEIPT`;
+    const deliveryDocumentNumber = `${nonce}-CUSTOMER-DELIVERY`;
+
+    const finishedReceipt = await requestJson(baseUrl, '/api/inventory/documents', 'POST', {
+      documentNumber: receiptDocumentNumber,
+      documentType: 'RECEIPT_FINISHED_GOODS',
+      warehouseId: 'WH-FINISHED',
+      ownership: 'COMPANY_OWNED',
+      referenceType: 'WIP_FINAL_OPERATION',
+      referenceNumber: mo.moNumber,
+      autoPost: true,
+      user: { uid: 'CI-INVENTORY-TEST', displayName: 'CI inventory lifecycle test' },
+      lines: [{
+        partId: finishedAppPart.id,
+        partCode: finishedAppPart.code,
+        partName: finishedAppPart.name,
+        quantity: 10,
+        quantityKg: Number((10 * finishedWeightPerUnitKg).toFixed(3)),
+        locationCode: 'LOC-FIN-P1',
+        qualityStatus: 'AVAILABLE',
+        ownership: 'COMPANY_OWNED',
+      }],
+    });
+    assert(finishedReceipt.response.status === 201 && finishedReceipt.payload.success === true,
+      `Finished-goods receipt must post to PostgreSQL: ${JSON.stringify(finishedReceipt.payload)}`);
+    deliveryDocumentNumbers.push(receiptDocumentNumber);
+    console.log('PASS: Final-operation finished-goods receipt posts to PostgreSQL.');
+
+    const customerDelivery = await requestJson(baseUrl, '/api/inventory/documents', 'POST', {
+      documentNumber: deliveryDocumentNumber,
+      documentType: 'DELIVERY_CUSTOMER',
+      warehouseId: 'WH-FINISHED',
+      ownership: 'COMPANY_OWNED',
+      referenceType: 'CUSTOMER_ORDER',
+      referenceNumber: nonce,
+      autoPost: true,
+      user: { uid: 'CI-INVENTORY-TEST', displayName: 'CI inventory lifecycle test' },
+      lines: [{
+        partId: finishedAppPart.id,
+        partCode: finishedAppPart.code,
+        partName: finishedAppPart.name,
+        quantity: 3,
+        quantityKg: Number((3 * finishedWeightPerUnitKg).toFixed(3)),
+        locationCode: 'LOC-FIN-P1',
+        qualityStatus: 'AVAILABLE',
+        ownership: 'COMPANY_OWNED',
+        notes: `Customer: ${customer.name}`,
+      }],
+    });
+    assert(customerDelivery.response.status === 201 && customerDelivery.payload.success === true,
+      `Customer delivery must post to PostgreSQL: ${JSON.stringify(customerDelivery.payload)}`);
+    deliveryDocumentNumbers.push(deliveryDocumentNumber);
+    const [finishedStockAfter, deliveryTransactions, persistedDelivery] = await Promise.all([
+      prisma.stockBalance.findFirst({
+        where: {
+          partId: finishedPart.id,
+          warehouseId: finishedWarehouse.id,
+          locationId: finishedLocation.id,
+          ownership: 'COMPANY_OWNED',
+          qualityStatus: 'AVAILABLE',
+          contractId: null,
+          materialLotId: null,
+        },
+      }),
+      prisma.inventoryTransaction.findMany({
+        where: { document: { documentNumber: deliveryDocumentNumber } },
+      }),
+      prisma.inventoryDocument.findUnique({
+        where: { documentNumber: deliveryDocumentNumber },
+        include: { transactions: true },
+      }),
+    ]);
+    assert(Number(finishedStockAfter?.quantityOnHand) - finishedQtyBefore === 7,
+      `Finished-goods balance must increase by 10 and decrease by 3; expected net +7, got ${Number(finishedStockAfter?.quantityOnHand) - finishedQtyBefore}.`);
+    assert(deliveryTransactions.length === 1 &&
+      Number(deliveryTransactions[0].quantitySigned) === -3 &&
+      Number(deliveryTransactions[0].weightKgSigned) === Number((3 * finishedWeightPerUnitKg).toFixed(3)),
+      `Customer delivery must create one negative PostgreSQL ledger movement: ${JSON.stringify(deliveryTransactions)}`);
+    assert(persistedDelivery?.postingStatus === 'POSTED' && persistedDelivery.transactions.length === 1,
+      'Customer delivery document and its posted transaction must persist together in PostgreSQL.');
+    console.log('PASS: Customer delivery deducts finished goods and persists a negative PostgreSQL ledger movement.');
   } finally {
     if (server) await new Promise<void>(resolve => server!.close(() => resolve()));
+    if (deliveryDocumentNumbers.length) {
+      const testDocuments = await prisma.inventoryDocument.findMany({
+        where: { documentNumber: { in: deliveryDocumentNumbers } },
+        select: { id: true },
+      });
+      const testDocumentIds = testDocuments.map(row => row.id);
+      if (testDocumentIds.length) {
+        await prisma.inventoryTransaction.deleteMany({ where: { documentId: { in: testDocumentIds } } });
+        await prisma.inventoryDocumentLine.deleteMany({ where: { documentId: { in: testDocumentIds } } });
+        await prisma.inventoryDocument.deleteMany({ where: { id: { in: testDocumentIds } } });
+      }
+      if (finishedStockBefore && finishedPartId && finishedWarehouseId && finishedLocationId) {
+        await prisma.stockBalance.update({
+          where: { id: finishedStockBefore.id },
+          data: {
+            quantityOnHand: finishedStockBefore.quantityOnHand,
+            quantityReserved: finishedStockBefore.quantityReserved,
+            quantityAvailable: finishedStockBefore.quantityAvailable,
+            weightKgOnHand: finishedStockBefore.weightKgOnHand,
+            weightKgReserved: finishedStockBefore.weightKgReserved,
+            weightKgAvailable: finishedStockBefore.weightKgAvailable,
+            lastTransactionAt: finishedStockBefore.lastTransactionAt,
+          },
+        });
+      } else if (finishedPartId && finishedWarehouseId && finishedLocationId) {
+        await prisma.stockBalance.deleteMany({
+          where: {
+            partId: finishedPartId,
+            warehouseId: finishedWarehouseId,
+            locationId: finishedLocationId,
+            ownership: 'COMPANY_OWNED',
+            qualityStatus: 'AVAILABLE',
+            contractId: null,
+            materialLotId: null,
+          },
+        });
+      }
+    }
     if (coilId) {
       const documents = await prisma.inventoryDocument.findMany({ where: { lines: { some: { physicalCoilId: coilId } } }, select: { id: true } });
       await prisma.inventoryTransaction.deleteMany({ where: { physicalCoilId: coilId } });
