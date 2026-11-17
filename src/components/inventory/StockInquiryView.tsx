@@ -282,6 +282,11 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     totalAvailableQty: number; totalReservedQty: number;
   }>>([]);
   const [serverGroupedLoading, setServerGroupedLoading] = useState(false);
+  const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
+  const [groupDetailPages, setGroupDetailPages] = useState<Record<string, { items: DetailedStockBalance[]; page: number; totalPages: number; total: number }>>({});
+  const [groupDetailLoading, setGroupDetailLoading] = useState<string | null>(null);
+  const [groupDetailErrors, setGroupDetailErrors] = useState<Record<string, string>>({});
+
   const [serverGroupedError, setServerGroupedError] = useState('');
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
@@ -631,27 +636,60 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     .reduce((sum, b) => sum + b.physicalKg, 0);
 
   // Group headers and totals come from PostgreSQL; the existing detail rows remain available below each group.
-  const groupedData = useMemo(() => {
-    if (groupBy === 'NONE') return [];
-    const detailGroups = new Map<string, DetailedStockBalance[]>();
-    filteredBalances.forEach(item => {
-      let key = 'نامشخص';
-      if (groupBy === 'PART') key = item.partId;
-      else if (groupBy === 'WAREHOUSE') key = item.warehouseId;
-      else if (groupBy === 'OWNERSHIP') key = item.ownership;
-      else if (groupBy === 'CONTRACT') key = item.contractNumber || 'FREE';
-      else if (groupBy === 'COIL_PACK') key = item.coilPackNumber || item.lotNumber || 'NO_LOT';
-      else if (groupBy === 'GRADE') key = item.materialGrade || 'OTHER';
-      else if (groupBy === 'THICKNESS') key = item.thicknessMm ? String(item.thicknessMm) : 'NO_THICK';
-      const items = detailGroups.get(key) || [];
-      items.push(item);
-      detailGroups.set(key, items);
-    });
-    return serverGroupedData.map(group => ({
-      ...group,
-      items: detailGroups.get(group.groupKey) || [],
-    }));
-  }, [filteredBalances, groupBy, serverGroupedData]);
+  const groupedData = serverGroupedData;
+
+  const fetchGroupDetails = async (group: typeof serverGroupedData[number], page: number, append: boolean) => {
+    setGroupDetailLoading(group.groupKey);
+    setGroupDetailErrors(current => ({ ...current, [group.groupKey]: '' }));
+    const params = new URLSearchParams();
+    params.set('groupBy', groupBy);
+    params.set('detailsOnly', 'true');
+    params.set('groupKey', group.groupKey);
+    params.set('page', String(page));
+    params.set('limit', '50');
+    if (selectedPartFilter !== 'ALL') params.set('partId', selectedPartFilter);
+    if (selectedWarehouseFilter !== 'ALL') params.set('warehouseId', selectedWarehouseFilter);
+    if (selectedOwnershipFilter !== 'ALL') params.set('ownership', selectedOwnershipFilter);
+    if (selectedGradeFilter !== 'ALL') params.set('materialGrade', selectedGradeFilter);
+    if (selectedThicknessFilter !== 'ALL') params.set('thicknessMm', selectedThicknessFilter);
+    if (selectedCoilPackFilter !== 'ALL') params.set('coilPackNumber', selectedCoilPackFilter);
+    if (selectedContractFilter !== 'ALL') params.set('contractNumber', selectedContractFilter);
+    if (selectedLotFilter !== 'ALL') params.set('lotNumber', selectedLotFilter);
+    if (searchTerm.trim()) params.set('search', searchTerm.trim());
+    if (onlyAvailable) params.set('onlyAvailable', 'true');
+    try {
+      const response = await fetch(`/api/inventory/stock-inquiry/grouped?${params.toString()}`);
+      const result = await response.json();
+      if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+        throw new Error(result?.error || 'دریافت جزئیات گروه ناموفق بود.');
+      }
+      setGroupDetailPages(current => ({
+        ...current,
+        [group.groupKey]: {
+          items: append ? [...(current[group.groupKey]?.items || []), ...result.data] : result.data,
+          page: result.page,
+          totalPages: result.totalPages,
+          total: result.total,
+        },
+      }));
+    } catch (error) {
+      setGroupDetailErrors(current => ({
+        ...current,
+        [group.groupKey]: error instanceof Error ? error.message : 'خطا در دریافت جزئیات گروه',
+      }));
+    } finally {
+      setGroupDetailLoading(current => current === group.groupKey ? null : current);
+    }
+  };
+
+  const handleToggleGroup = (group: typeof serverGroupedData[number]) => {
+    if (expandedGroupKey === group.groupKey) {
+      setExpandedGroupKey(null);
+      return;
+    }
+    setExpandedGroupKey(group.groupKey);
+    if (!groupDetailPages[group.groupKey]) void fetchGroupDetails(group, 1, false);
+  };
 
   const totalPages = serverTotalPages;
   const paginatedBalances = serverPageBalances;
@@ -1602,7 +1640,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
 
           {groupedData.map(group => (
             <div key={group.groupKey} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-              <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <button type="button" onClick={() => handleToggleGroup(group)} aria-expanded={expandedGroupKey === group.groupKey} className="w-full text-right bg-slate-50 hover:bg-slate-100 px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div className="flex items-center gap-2">
                   <Layers className="w-4 h-4 text-blue-600" />
                   <strong className="text-slate-900 text-sm">{group.groupTitle}</strong>
@@ -1619,8 +1657,10 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                     قابل استفاده: <strong>{formatWeightKg(group.totalAvailableKg)}</strong>
                   </span>
                 </div>
-              </div>
+                <span className="text-slate-500">{expandedGroupKey === group.groupKey ? 'بستن جزئیات' : 'مشاهده جزئیات'}</span>
+              </button>
 
+              {expandedGroupKey === group.groupKey && (
               <div className="overflow-auto max-h-[calc(100vh-360px)]">
                 <table className="w-full text-right text-xs">
                   <thead className="bg-white border-b border-slate-100 text-slate-500">
@@ -1635,7 +1675,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {group.items.map(item => (
+                    {(groupDetailPages[group.groupKey]?.items || []).map(item => (
                       <tr key={item.id} className="hover:bg-slate-50">
                         <td className="py-2.5 px-3 font-medium text-slate-900">
                           {item.partName} <span className="text-slate-400 font-mono">({item.partCode})</span>
@@ -1662,7 +1702,16 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                     ))}
                   </tbody>
                 </table>
+                {groupDetailLoading === group.groupKey && <div className="p-3 text-xs text-slate-500">در حال دریافت جزئیات از PostgreSQL...</div>}
+                {groupDetailErrors[group.groupKey] && <div role="alert" className="p-3 text-xs text-rose-700">{groupDetailErrors[group.groupKey]}</div>}
+                {groupDetailPages[group.groupKey]?.totalPages > (groupDetailPages[group.groupKey]?.page || 0) && (
+                  <div className="p-3 text-center">
+                    <button type="button" disabled={groupDetailLoading === group.groupKey} onClick={() => void fetchGroupDetails(group, (groupDetailPages[group.groupKey]?.page || 0) + 1, true)} className="px-3 py-1.5 text-xs rounded border border-slate-300 text-slate-700 disabled:opacity-50">بارگذاری ۵۰ ردیف بعدی</button>
+                  </div>
+                )}
+                {groupDetailPages[group.groupKey] && <div className="px-3 pb-3 text-[11px] text-slate-500">نمایش {toPersianDigits(groupDetailPages[group.groupKey].items.length)} از {toPersianDigits(groupDetailPages[group.groupKey].total)} ردیف</div>}
               </div>
+              )}
             </div>
           ))}
         </div>
