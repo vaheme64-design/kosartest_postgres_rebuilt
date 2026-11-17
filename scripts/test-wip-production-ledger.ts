@@ -1,5 +1,6 @@
 import { getPrismaClient } from '../src/server/db/prisma';
 import { postWipProductionAtomically } from '../src/server/wipProductionLedger';
+import { postDocumentInDbTransaction } from '../src/server/inventoryEngine';
 
 function assert(description: string, condition: boolean) {
   if (!condition) throw new Error(`❌ ${description}`);
@@ -11,6 +12,7 @@ async function run() {
   const wipMoId = 'WIP-LEDGER-INTEGRATION-TEST';
   const idempotencyKey = 'test-wip-ledger-atomic-980-20';
   const rollbackKey = 'test-wip-ledger-rollback-001';
+  const deliveryDocumentNumber = 'WIP-LEDGER-CUSTOMER-DELIVERY-TEST';
   const testOwnership = 'WIP_LEDGER_TEST';
   const testContractId = 'WIP-LEDGER-INTEGRATION-TEST';
 
@@ -40,6 +42,26 @@ async function run() {
     if (stale.length) {
       await prisma.inventoryTransaction.deleteMany({ where: { productionReportId: { in: stale.map((row: any) => row.id) } } });
       await prisma.productionReport.deleteMany({ where: { id: { in: stale.map((row: any) => row.id) } } });
+    }
+    const staleDelivery = await prisma.inventoryDocument.findUnique({
+      where: { documentNumber: deliveryDocumentNumber },
+      select: { id: true },
+    });
+    if (staleDelivery) {
+      await prisma.inventoryTransaction.deleteMany({ where: { documentId: staleDelivery.id } });
+      await prisma.inventoryDocumentLine.deleteMany({ where: { documentId: staleDelivery.id } });
+      await prisma.auditLog.deleteMany({ where: { entityName: 'InventoryDocument', entityId: staleDelivery.id } });
+      await prisma.inventoryDocument.deleteMany({ where: { id: staleDelivery.id } });
+    }
+    const deliveryDoc = await prisma.inventoryDocument.findUnique({
+      where: { documentNumber: deliveryDocumentNumber },
+      select: { id: true },
+    });
+    if (deliveryDoc) {
+      await prisma.inventoryTransaction.deleteMany({ where: { documentId: deliveryDoc.id } });
+      await prisma.inventoryDocumentLine.deleteMany({ where: { documentId: deliveryDoc.id } });
+      await prisma.auditLog.deleteMany({ where: { entityName: 'InventoryDocument', entityId: deliveryDoc.id } });
+      await prisma.inventoryDocument.deleteMany({ where: { id: deliveryDoc.id } });
     }
     await prisma.wipManufacturingOrderLink.deleteMany({ where: { wipManufacturingOrderId: wipMoId } });
     await prisma.stockBalance.deleteMany({ where: { ownership: testOwnership, contractId: testContractId } });
@@ -228,6 +250,86 @@ async function run() {
     assert('Final-stage good output is posted to LOC-FIN-P1 as finished goods', Number(finishedGoods?.quantityOnHand) === 950);
     assert('Scrap ledger accumulates 50 pieces across both operations', Number(totalScrap?.quantityOnHand) === 50);
     assert('Final production report links its finished-goods and scrap movements', finalMovements.length === 3);
+
+    // Continue the very same production order through customer shipment.
+    const [partWithUnit, customer] = await Promise.all([
+      prisma.part.findUnique({ where: { id: part.id }, include: { unit: true } }),
+      prisma.customer.findFirst({ where: { active: true }, orderBy: { code: 'asc' } }),
+    ]);
+    if (!partWithUnit?.unit || !customer) {
+      throw new Error('An active customer and the final product unit are required for the end-to-end delivery fixture.');
+    }
+    const deliveryQty = 100;
+    const deliveryUnitWeightKg = Number(partWithUnit.weightNetKg || 1);
+    const deliveryNow = new Date().toISOString();
+    const deliveryDocument: any = {
+      id: `DOC-${deliveryDocumentNumber}`,
+      documentNumber: deliveryDocumentNumber,
+      documentType: 'DELIVERY_CUSTOMER',
+      documentDate: deliveryNow,
+      documentStatus: 'DRAFT',
+      postingStatus: 'UNPOSTED',
+      warehouseId: finalLocation.warehouseId,
+      warehouseName: finalLocation.warehouse.name,
+      ownership: testOwnership,
+      referenceType: 'CUSTOMER',
+      referenceNumber: customer.code,
+      lines: [{
+        id: `LINE-${deliveryDocumentNumber}-1`,
+        documentId: `DOC-${deliveryDocumentNumber}`,
+        lineNumber: 1,
+        partId: partWithUnit.id,
+        partCode: partWithUnit.partNumber,
+        partName: partWithUnit.name,
+        ownership: testOwnership,
+        contractId: testContractId,
+        contractNumber: testContractId,
+        locationCode: finalLocation.code,
+        quantity: deliveryQty,
+        unit: partWithUnit.unit.code,
+        quantityKg: Number((deliveryQty * deliveryUnitWeightKg).toFixed(3)),
+        qualityStatus: 'AVAILABLE',
+      }],
+      totalQuantity: deliveryQty,
+      totalWeightKg: Number((deliveryQty * deliveryUnitWeightKg).toFixed(3)),
+      createdByUid: user.username,
+      createdByName: user.fullName,
+      createdAt: deliveryNow,
+      updatedAt: deliveryNow,
+    };
+    const deliveryResult = await postDocumentInDbTransaction(deliveryDocument, {
+      uid: user.username,
+      displayName: user.fullName,
+    });
+    assert('Customer delivery posts successfully against the finished-goods output of this same WIP order',
+      deliveryResult.success && deliveryDocument.postingStatus === 'POSTED');
+    const [finishedGoodsAfterDelivery, deliveryLedger, savedDelivery] = await Promise.all([
+      prisma.stockBalance.findFirst({
+        where: {
+          partId: part.id,
+          locationId: finalLocation.id,
+          ownership: testOwnership,
+          contractId: testContractId,
+          qualityStatus: 'AVAILABLE',
+        },
+      }),
+      prisma.inventoryTransaction.findMany({
+        where: { document: { documentNumber: deliveryDocumentNumber } },
+      }),
+      prisma.inventoryDocument.findUnique({
+        where: { documentNumber: deliveryDocumentNumber },
+        include: { transactions: true },
+      }),
+    ]);
+    assert('Customer shipment consumes 100 pieces from the 950 finished goods created by the final WIP operation',
+      Number(finishedGoodsAfterDelivery?.quantityOnHand) === 850);
+    assert('Customer shipment writes one negative, document-linked PostgreSQL ledger movement',
+      deliveryLedger.length === 1 &&
+      Number(deliveryLedger[0].quantitySigned) === -deliveryQty &&
+      Number(deliveryLedger[0].weightKgSigned) === -Number((deliveryQty * deliveryUnitWeightKg).toFixed(3)));
+    assert('Customer delivery persists the customer code and posted status',
+      savedDelivery?.postingStatus === 'POSTED' && savedDelivery.referenceNumber === customer.code &&
+      savedDelivery.transactions.length === 1);
 
     let rollbackRejected = false;
     try {
