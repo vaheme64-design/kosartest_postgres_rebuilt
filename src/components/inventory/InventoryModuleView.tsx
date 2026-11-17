@@ -1011,7 +1011,6 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
         onClose={() => setIsTransferOpen(false)}
         parts={parts}
         warehouses={warehouses}
-        balances={balances}
         onSubmit={handleCreateDocument}
         onItemCreated={loadInventoryData}
       />
@@ -1031,7 +1030,6 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
         onClose={() => setIsAdjustmentOpen(false)}
         parts={parts}
         warehouses={warehouses}
-        balances={balances}
         onSubmit={handleCreateDocument}
         onItemCreated={loadInventoryData}
       />
