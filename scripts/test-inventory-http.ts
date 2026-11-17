@@ -529,7 +529,7 @@ async function main() {
       `Finished-goods balance must increase by 10 and decrease by 3; expected net +7, got ${Number(finishedStockAfter?.quantityOnHand) - finishedQtyBefore}.`);
     assert(deliveryTransactions.length === 1 &&
       Number(deliveryTransactions[0].quantitySigned) === -3 &&
-      Number(deliveryTransactions[0].weightKgSigned) === Number((3 * finishedWeightPerUnitKg).toFixed(3)),
+      Number(deliveryTransactions[0].weightKgSigned) === -Number((3 * finishedWeightPerUnitKg).toFixed(3)),
       `Customer delivery must create one negative PostgreSQL ledger movement: ${JSON.stringify(deliveryTransactions)}`);
     assert(persistedDelivery?.postingStatus === 'POSTED' &&
       persistedDelivery.transactions.length === 1 &&
