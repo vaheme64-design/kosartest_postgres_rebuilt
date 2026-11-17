@@ -26,17 +26,17 @@ The existing server-side filtering, pagination, grouped totals, drill-down detai
 
 ## Regression coverage added
 
-- Atomic WIP production now verifies both the intermediate-stage transfer and final-stage posting to LOC-FIN-P1.
+- Atomic WIP production verifies the intermediate-stage transfer, final-stage posting to LOC-FIN-P1, and delivery of 100 pieces from that same order's finished-goods balance to a customer.
 - The WIP test verifies good quantity, scrap quantity, source depletion, destination balances, ledger movements, idempotent replay, and rejection when source stock is insufficient.
 - The HTTP inventory lifecycle test verifies physical coil receipt, contract allocation, issue, partial return, concurrent return protection, finished-goods receipt, and customer delivery.
-- Customer delivery is checked for a persisted customer reference, a negative PostgreSQL ledger movement, and the expected net finished-goods balance.
+- Customer delivery is checked for a persisted customer reference, a negative PostgreSQL ledger movement, and the expected net finished-goods balance (950 finished pieces before shipment, 850 after a 100-piece delivery in the dedicated WIP fixture).
 - Test-created documents and balances are cleaned up or restored.
 
 ## Verification
 
-The branch CI run **#266** completed successfully. It passed TypeScript validation, production build, Prisma schema validation, seed checks, inventory regression tests, WIP reconciliation, atomic WIP production, planning, customer-order, reporting, physical-coil, inventory HTTP lifecycle, and first-operation coil-to-WIP integration tests.
+The branch CI run **#268** completed successfully. It passed TypeScript validation, production build, Prisma schema validation, seed checks, inventory regression tests, WIP reconciliation, atomic WIP production, planning, customer-order, reporting, physical-coil, inventory HTTP lifecycle, and first-operation coil-to-WIP integration tests.
 
-Run: https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/44040718059
+Run: https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/44040977021
 
 ## Acceptance still required
 
