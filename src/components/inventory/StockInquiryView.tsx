@@ -414,6 +414,9 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
     }
     const controller = new AbortController();
     const params = new URLSearchParams({ partId: selectedPart.id, page: '1', limit: '50' });
+    setSelectedPartBalancesPage(1);
+    setSelectedPartBalancesTotalPages(1);
+    setSelectedPartBalancesTotal(0);
     setSelectedPartBalancesLoading(true);
     setSelectedPartBalancesError('');
     fetch(`/api/inventory/stock-inquiry?${params.toString()}`, { signal: controller.signal })
