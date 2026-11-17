@@ -50,7 +50,6 @@ interface IssueFormModalProps {
   warehouses: WarehouseDefinition[];
   customers?: CustomerDefinition[];
   contracts?: SapcoContract[];
-  balances: DetailedStockBalance[];
   initialDraft?: IssueDraftPayload | null;
   onSubmit: (payload: any) => Promise<{ success: boolean; message?: string; error?: string }>;
   onItemCreated?: () => void;
@@ -63,7 +62,6 @@ export const IssueFormModal: React.FC<IssueFormModalProps> = ({
   warehouses: initialWarehouses,
   customers: initialCustomers = [],
   contracts: initialContracts = [],
-  balances,
   initialDraft,
   onSubmit,
   onItemCreated,
