@@ -114,7 +114,6 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
   };
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [showSecondaryTabs, setShowSecondaryTabs] = useState(false);
 
   // Dedicated Reorder Alerts Page Filters
   const [alertCategoryFilter, setAlertCategoryFilter] = useState<'ALL' | PartCategory>('ALL');
@@ -407,9 +406,9 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
     { id: 'CONTRACTS', label: 'قراردادها و سهمیه مواد', icon: FileSignature },
     { id: 'IMPORT_EXPORT', label: 'ورود و خروج اکسل (CSV)', icon: Upload },
     { id: 'SAPCO', label: 'صورتحساب امانی ساپکو', icon: ScrollText },
+    { id: 'STAGES', label: 'موجودی مراحل تولید (WIP)', icon: Layers },
   ];
 
-  const isSecondaryActive = secondaryTabs.some(t => t.id === activeSubTab);
 
   const categoryLabels: Record<PartCategory, string> = {
     RAW_MATERIAL: 'ماده اولیه / ورق',
@@ -546,51 +545,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
           </div>
         </div>
 
-        {/* Single Flat Filter / View Selector Bar (Replaces multi-row sub-tabs) */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
-              <Layers className="w-3.5 h-3.5 text-orange-600" />
-              <span className="text-slate-500 font-medium">نمای بخش انبار:</span>
-              <select
-                value={activeSubTab}
-                onChange={e => handleSelectSubTab(e.target.value as InventorySubTab)}
-                className="bg-transparent font-bold text-slate-900 focus:outline-none cursor-pointer"
-              >
-                {[...primaryTabs, ...secondaryTabs].map(tab => (
-                  <option key={tab.id} value={tab.id}>
-                    {tab.label}
-                  </option>
-                ))}
-              </select>
-            </div>
 
-            {/* Quick Tag Filter Chips (Compact Grafana Tag Style) */}
-            <div className="flex items-center gap-1.5 overflow-x-auto">
-              {primaryTabs.slice(0, 5).map(tab => {
-                const isActive = activeSubTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => handleSelectSubTab(tab.id)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap cursor-pointer border ${
-                      isActive
-                        ? 'bg-orange-50 text-orange-900 border-orange-200 font-bold'
-                        : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200/80'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="text-[11px] text-slate-400">
-            کل رول‌های فعال: {toPersianDigits(coils.length)} • قراردادها: {toPersianDigits(contracts.length)}
-          </div>
-        </div>
       </div>
 
       {/* Toast Notification */}
@@ -619,6 +574,51 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
         </div>
       )}
 
+      {/* Enterprise shell: persistent section navigation + task workspace. */}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[248px_minmax(0,1fr)] xl:items-start" dir="rtl">
+        <aside className="rounded-lg border border-slate-200 bg-white p-2 shadow-2xs xl:sticky xl:top-3" aria-label="ناوبری انبار">
+          <div className="px-3 py-2">
+            <div className="text-[10px] font-semibold tracking-wide text-slate-400">NAVIGATION</div>
+            <div className="mt-1 text-sm font-bold text-slate-900">بخش‌های انبارداری</div>
+          </div>
+          <div className="grid grid-cols-2 gap-1 xl:grid-cols-1">
+            {primaryTabs.map(tab => {
+              const Icon = tab.icon;
+              const active = activeSubTab === tab.id;
+              return (
+                <button key={tab.id} type="button" onClick={() => handleSelectSubTab(tab.id)}
+                  aria-current={active ? 'page' : undefined}
+                  className={`flex min-w-0 items-center gap-2 rounded-md border-r-[3px] px-3 py-2.5 text-right text-xs transition-colors ${active ? 'border-r-[#0a6ed1] bg-[#eaf3fc] font-bold text-[#0a6ed1]' : 'border-r-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+                  {typeof tab.badge === 'number' && <span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${active ? 'bg-white text-[#0a6ed1]' : tab.badgeColor || 'bg-slate-100 text-slate-600'}`}>{toPersianDigits(tab.badge)}</span>}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mx-2 my-2 border-t border-slate-100" />
+          <div className="px-3 py-1 text-[10px] font-semibold tracking-wide text-slate-400">ابزارهای تخصصی</div>
+          <div className="grid grid-cols-2 gap-1 xl:grid-cols-1">
+            {secondaryTabs.map(tab => {
+              const Icon = tab.icon;
+              const active = activeSubTab === tab.id;
+              return (
+                <button key={tab.id} type="button" onClick={() => handleSelectSubTab(tab.id)}
+                  aria-current={active ? 'page' : undefined}
+                  className={`flex min-w-0 items-center gap-2 rounded-md border-r-[3px] px-3 py-2.5 text-right text-xs transition-colors ${active ? 'border-r-[#0a6ed1] bg-[#eaf3fc] font-bold text-[#0a6ed1]' : 'border-r-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-[10px] text-slate-500">
+            رول‌های فعال: <strong className="font-mono text-slate-800">{toPersianDigits(coils.length)}</strong>
+            <span className="mx-1">·</span>
+            قراردادها: <strong className="font-mono text-slate-800">{toPersianDigits(contracts.length)}</strong>
+          </div>
+        </aside>
+        <main className="min-w-0 space-y-4" aria-label="محتوای بخش انتخاب‌شده">
       {/* DEDICATED PAGE: Reorder Point Alerts & Material Shortages (ALERTS Sub-Tab) */}
       {activeSubTab === 'ALERTS' && (
         <>
@@ -958,6 +958,9 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
           loading={loading}
         />
       )}
+
+        </main>
+      </div>
 
       {/* Modals */}
       <ReceiptFormModal
