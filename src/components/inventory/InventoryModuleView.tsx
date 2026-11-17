@@ -26,7 +26,6 @@ import {
   Part,
   PartCategory,
   WarehouseDefinition,
-  DetailedStockBalance,
   InventoryDocument,
   SapcoContract,
   SapcoContractLedgerEntry,
@@ -132,7 +131,6 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
   // Core Inventory Data
   const [metrics, setMetrics] = useState<InventoryDashboardMetrics | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseDefinition[]>(WAREHOUSES_LIST);
-  const [balances, setBalances] = useState<DetailedStockBalance[]>([]);
   const [warehouseStockSummary, setWarehouseStockSummary] = useState<Record<string, { physicalKg: number; physicalPcs: number; lotsCount: number; rowCount: number }>>({});
   const [partStockSummary, setPartStockSummary] = useState<Record<string, { rowCount: number; availableQty: number; availableKg: number; locationsSummary: string[] }>>({});
   const [warehouseStockSummaryError, setWarehouseStockSummaryError] = useState('');
@@ -177,10 +175,9 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
   const loadInventoryData = useCallback(async () => {
     setLoading(true);
     try {
-      const [metricsRes, whRes, inquiryRes, warehouseSummaryRes, partSummaryRes, docsRes, sapcoRes, coilsRes, contractsRes, custRes] = await Promise.all([
+      const [metricsRes, whRes, warehouseSummaryRes, partSummaryRes, docsRes, sapcoRes, coilsRes, contractsRes, custRes] = await Promise.all([
         fetch('/api/inventory/dashboard-metrics').then(r => r.json()),
         fetch('/api/inventory/warehouses').then(r => r.json()),
-        fetch('/api/inventory/stock-inquiry').then(r => r.json()),
         fetch('/api/inventory/stock-inquiry/warehouse-summary').then(r => r.json()),
         fetch('/api/inventory/stock-inquiry/part-summary').then(r => r.json()),
         fetch('/api/inventory/documents').then(r => r.json()),
@@ -192,7 +189,6 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
 
       if (metricsRes?.success && metricsRes.data) setMetrics(metricsRes.data);
       if (whRes?.success && Array.isArray(whRes.data) && whRes.data.length > 0) setWarehouses(whRes.data);
-      if (inquiryRes?.success && Array.isArray(inquiryRes.data)) setBalances(inquiryRes.data);
       if (warehouseSummaryRes?.success && Array.isArray(warehouseSummaryRes.data)) {
         setWarehouseStockSummary(Object.fromEntries(warehouseSummaryRes.data.map((row: any) => [row.warehouseId, {
           physicalKg: Number(row.physicalKg || 0),
@@ -418,7 +414,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
     FINISHED_GOOD: 'محصول نهایی',
   };
 
-  if (loading && !metrics && balances.length === 0 && coils.length === 0) {
+  if (loading && !metrics && coils.length === 0) {
     return <InventoryModuleSkeleton />;
   }
 
