@@ -940,6 +940,7 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
                   <button
                     key={item.part.id}
                     type="button"
+                    disabled={loadingMoreSelectedPartBalances}
                     onClick={() => setSelectedCardexPartId(item.part.id)}
                     className={`w-full text-right p-3.5 transition-all flex items-start justify-between gap-2 cursor-pointer ${
                       isSelected
