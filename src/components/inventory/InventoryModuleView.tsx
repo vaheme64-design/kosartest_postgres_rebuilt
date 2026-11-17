@@ -578,7 +578,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[248px_minmax(0,1fr)] xl:items-start" dir="rtl">
         <aside className="rounded-lg border border-slate-200 bg-white p-2 shadow-2xs xl:sticky xl:top-3" aria-label="ناوبری انبار">
           <div className="px-3 py-2">
-            <div className="text-[10px] font-semibold tracking-wide text-slate-400">NAVIGATION</div>
+            <div className="text-[10px] font-semibold tracking-wide text-slate-400">ناوبری</div>
             <div className="mt-1 text-sm font-bold text-slate-900">بخش‌های انبارداری</div>
           </div>
           <div className="grid grid-cols-2 gap-1 xl:grid-cols-1">
