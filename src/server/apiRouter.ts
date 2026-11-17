@@ -2921,6 +2921,99 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
       return res.status(400).json({ success: false, error: 'نوع گروه‌بندی معتبر نیست.' });
     }
 
+    // Expanded group details are loaded independently and paginated; do not reuse the module-wide balances array.
+    if (queryValue('detailsOnly') === 'true') {
+      const groupKey = queryValue('groupKey');
+      if (!groupKey) return res.status(400).json({ success: false, error: 'شناسه گروه برای دریافت جزئیات الزامی است.' });
+      const groupWhere: any = { ...where };
+      switch (groupBy) {
+        case 'PART': groupWhere.partId = groupKey; break;
+        case 'WAREHOUSE': groupWhere.warehouseId = groupKey; break;
+        case 'OWNERSHIP': groupWhere.ownership = groupKey; break;
+        case 'CONTRACT':
+          if (groupKey === 'FREE') groupWhere.contractNumber = null;
+          else groupWhere.contractNumber = groupKey;
+          break;
+        case 'COIL_PACK':
+          if (groupKey === 'NO_LOT') {
+            groupWhere.AND = [...(groupWhere.AND || []), { physicalCoil: { is: { coilPackNumber: null } } }, { materialLot: { is: { lotNumber: null } } }];
+          } else {
+            groupWhere.AND = [...(groupWhere.AND || []), { OR: [
+              { physicalCoil: { is: { coilPackNumber: groupKey } } },
+              { materialLot: { is: { lotNumber: groupKey } } },
+              { physicalCoil: { is: { coilId: groupKey } } },
+            ] }];
+          }
+          break;
+        case 'GRADE':
+          if (groupKey === 'OTHER') groupWhere.part = { ...(groupWhere.part || {}), material: { is: null } };
+          else groupWhere.part = { ...(groupWhere.part || {}), material: { is: { grade: groupKey } } };
+          break;
+        case 'THICKNESS':
+          if (groupKey === 'NO_THICK') {
+            groupWhere.AND = [...(groupWhere.AND || []), { part: { thicknessMm: null } }, { materialLot: { is: { thicknessMm: null } } }, { physicalCoil: { is: { thicknessMm: null } } }];
+          } else {
+            const thickness = Number(groupKey);
+            if (!Number.isFinite(thickness) || thickness <= 0) return res.status(400).json({ success: false, error: 'ضخامت گروه معتبر نیست.' });
+            groupWhere.AND = [...(groupWhere.AND || []), { OR: [
+              { part: { thicknessMm: thickness } },
+              { materialLot: { is: { thicknessMm: thickness } } },
+              { physicalCoil: { is: { thicknessMm: thickness } } },
+            ] }];
+          }
+          break;
+      }
+      const page = Math.max(1, Number.parseInt(queryValue('page') || '1', 10) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number.parseInt(queryValue('limit') || '50', 10) || 50));
+      const [total, details] = await prisma.$transaction([
+        prisma.stockBalance.count({ where: groupWhere }),
+        prisma.stockBalance.findMany({
+          where: groupWhere,
+          include: {
+            part: { include: { material: true, unit: true } },
+            warehouse: true,
+            location: true,
+            materialLot: true,
+            physicalCoil: true,
+          },
+          orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+      ]);
+      const data = details.map((row: any) => {
+        const physicalQty = Number(row.quantityOnHand || 0);
+        const physicalKg = Number(row.weightKgOnHand || 0);
+        const reservedQty = Number(row.quantityReserved || 0);
+        const reservedKg = Number(row.weightKgReserved || 0);
+        const blocked = row.qualityStatus !== 'AVAILABLE';
+        const ownershipValue = row.ownership || 'COMPANY_OWNED';
+        return {
+          id: row.id, partId: row.partId, partCode: row.part.partNumber, partName: row.part.name,
+          category: row.part.category, materialGrade: row.part.material?.grade,
+          thicknessMm: row.part.thicknessMm == null ? undefined : Number(row.part.thicknessMm),
+          warehouseId: row.warehouseId, warehouseName: row.warehouse.name,
+          locationCode: row.location?.code || 'MAIN',
+          materialLotId: row.materialLotId || undefined,
+          lotNumber: row.materialLot?.lotNumber || row.physicalCoil?.coilId || undefined,
+          coilPackNumber: row.physicalCoil?.coilPackNumber,
+          heatNumber: row.materialLot?.heatNumber || row.physicalCoil?.heatNumber || undefined,
+          ownership: ownershipValue, contractId: row.contractId || undefined,
+          contractNumber: row.contractNumber || undefined, unit: row.part.unit.code,
+          physicalQty, ownedQty: ownershipValue === 'COMPANY_OWNED' ? physicalQty : 0,
+          supplierOwnedQty: ownershipValue === 'COMPANY_OWNED' ? 0 : physicalQty,
+          reservedQty, qualityBlockedQty: blocked ? physicalQty : 0,
+          availableQty: blocked ? 0 : Math.max(0, Number(row.quantityAvailable ?? physicalQty - reservedQty)),
+          physicalKg, ownedKg: ownershipValue === 'COMPANY_OWNED' ? physicalKg : 0,
+          supplierOwnedKg: ownershipValue === 'COMPANY_OWNED' ? 0 : physicalKg,
+          reservedKg, qualityBlockedKg: blocked ? physicalKg : 0,
+          availableKg: blocked ? 0 : Math.max(0, Number(row.weightKgAvailable ?? physicalKg - reservedKg)),
+          lastTransactionAt: (row.lastTransactionAt || row.updatedAt).toISOString(),
+        };
+      });
+      return res.json({ success: true, source: 'POSTGRESQL_STOCK_BALANCE_GROUP_DETAILS', groupBy, groupKey, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)), data });
+    }
+
     const rows = await prisma.stockBalance.findMany({
       where,
       select: {
