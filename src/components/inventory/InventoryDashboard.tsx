@@ -33,6 +33,7 @@ interface InventoryDashboardProps {
   warehouses: WarehouseDefinition[];
   balances: DetailedStockBalance[];
   warehouseStockSummary: Record<string, { physicalKg: number; physicalPcs: number; lotsCount: number; rowCount: number }>;
+  warehouseStockSummaryError: string;
   loading: boolean;
   onRefresh: () => Promise<void>;
   onOpenReceipt: () => void;
@@ -51,6 +52,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
   warehouses,
   balances,
   warehouseStockSummary,
+  warehouseStockSummaryError,
   loading,
   onRefresh,
   onOpenReceipt,
@@ -238,13 +240,17 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
             </button>
           </div>
 
+          {warehouseStockSummaryError && (
+            <div role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              خطا در دریافت خلاصه موجودی انبارها: {warehouseStockSummaryError}
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {warehouses.map(wh => {
               const summary = warehouseStockSummary[wh.id];
-              const whBalances = summary ? [] : balances.filter(b => b.warehouseId === wh.id);
-              const totalKg = summary?.physicalKg ?? whBalances.reduce((sum, b) => sum + b.physicalKg, 0);
-              const totalPcs = summary?.physicalPcs ?? whBalances.reduce((sum, b) => (b.unit === 'PCS' ? sum + b.physicalQty : sum), 0);
-              const lotsCount = summary?.lotsCount ?? new Set(whBalances.map(b => b.lotNumber).filter(Boolean)).size;
+              const totalKg = summary?.physicalKg ?? 0;
+              const totalPcs = summary?.physicalPcs ?? 0;
+              const lotsCount = summary?.lotsCount ?? 0;
 
               return (
                 <div
@@ -260,9 +266,9 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
                     </div>
                     <div className="mt-3 flex items-baseline gap-2">
                       <span className="text-base font-bold text-slate-900 font-mono">
-                        {formatWeightKg(totalKg)}
+                        {warehouseStockSummaryError ? '—' : formatWeightKg(totalKg)}
                       </span>
-                      {totalPcs > 0 && (
+                      {!warehouseStockSummaryError && totalPcs > 0 && (
                         <span className="text-xs text-slate-500 font-mono tabular-nums">
                           ({formatNumber(totalPcs)} عدد)
                         </span>
@@ -272,7 +278,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
 
                   <div className="mt-3 pt-3 border-t border-slate-200/60 text-[11px] text-slate-500 flex items-center justify-between">
                     <span>سرپرست: {wh.managerName || '—'}</span>
-                    <span>{lotsCount > 0 ? `${lotsCount} رول/بچ فعال` : `${wh.locations.length} موقعیت`}</span>
+                    <span>{warehouseStockSummaryError ? 'خلاصه موجودی در دسترس نیست' : lotsCount > 0 ? `${lotsCount} رول/بچ فعال` : `${wh.locations.length} موقعیت`}</span>
                   </div>
                 </div>
               );
