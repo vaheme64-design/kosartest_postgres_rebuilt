@@ -135,6 +135,8 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
   const [balances, setBalances] = useState<DetailedStockBalance[]>([]);
   const [warehouseStockSummary, setWarehouseStockSummary] = useState<Record<string, { physicalKg: number; physicalPcs: number; lotsCount: number; rowCount: number }>>({});
   const [partStockSummary, setPartStockSummary] = useState<Record<string, { rowCount: number; availableQty: number; availableKg: number; locationsSummary: string[] }>>({});
+  const [warehouseStockSummaryError, setWarehouseStockSummaryError] = useState('');
+  const [partStockSummaryError, setPartStockSummaryError] = useState('');
   const [documents, setDocuments] = useState<InventoryDocument[]>([]);
   const [contracts, setContracts] = useState<SapcoContract[]>([]);
   const [customers, setCustomers] = useState<CustomerDefinition[]>([]);
@@ -198,8 +200,10 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
           lotsCount: Number(row.lotsCount || 0),
           rowCount: Number(row.rowCount || 0),
         }])));
+        setWarehouseStockSummaryError('');
       } else {
         setWarehouseStockSummary({});
+        setWarehouseStockSummaryError(warehouseSummaryRes?.error || 'پاسخ خلاصه موجودی انبارها معتبر نیست.');
       }
       if (partSummaryRes?.success && Array.isArray(partSummaryRes.data)) {
         setPartStockSummary(Object.fromEntries(partSummaryRes.data.map((row: any) => [row.partId, {
@@ -208,8 +212,10 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
           availableKg: Number(row.availableKg || 0),
           locationsSummary: Array.isArray(row.locationsSummary) ? row.locationsSummary : [],
         }])));
+        setPartStockSummaryError('');
       } else {
         setPartStockSummary({});
+        setPartStockSummaryError(partSummaryRes?.error || 'پاسخ خلاصه موجودی کالاها معتبر نیست.');
       }
       if (docsRes?.success && Array.isArray(docsRes.data)) setDocuments(docsRes.data);
       if (coilsRes?.success && Array.isArray(coilsRes.data)) setCoils(coilsRes.data);
