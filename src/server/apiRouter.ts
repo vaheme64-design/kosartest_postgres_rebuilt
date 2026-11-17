@@ -2936,18 +2936,13 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
           break;
         case 'COIL_PACK':
           if (groupKey === 'NO_LOT') {
-            groupWhere.AND = [...(groupWhere.AND || []), { physicalCoil: { is: { coilPackNumber: null } } }, { materialLot: { is: { lotNumber: null } } }];
+            groupWhere.physicalCoilId = null;
+            groupWhere.materialLotId = null;
           } else {
             groupWhere.AND = [...(groupWhere.AND || []), { OR: [
               { physicalCoil: { is: { coilPackNumber: groupKey } } },
-              { AND: [
-                { materialLot: { is: { lotNumber: groupKey } } },
-                { OR: [{ physicalCoil: { is: null } }, { physicalCoil: { is: { coilPackNumber: null } } }] },
-              ] },
-              { AND: [
-                { physicalCoil: { is: { coilId: groupKey, coilPackNumber: null } } },
-                { materialLot: { is: null } },
-              ] },
+              { AND: [{ physicalCoilId: null }, { materialLot: { is: { lotNumber: groupKey } } }] },
+              { AND: [{ materialLotId: null }, { physicalCoil: { is: { coilId: groupKey, coilPackNumber: '' } } }] },
             ] }];
           }
           break;
