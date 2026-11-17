@@ -246,7 +246,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
 
   // Programmatically identify materials where current stock is below the defined reorder point (minStock)
   const reorderAlerts = useMemo<ReorderAlertItem[]>(() => {
-    if (!parts || parts.length === 0) return [];
+    if (partStockSummaryError || !parts || parts.length === 0) return [];
 
     return parts
       .filter(part => typeof part.minStock === 'number' && part.minStock > 0)
@@ -262,30 +262,17 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
           0
         );
 
-        // 2. Prefer PostgreSQL's per-part aggregate; keep the detailed-row fallback during migration.
+        // PostgreSQL per-part aggregate is authoritative; do not fall back to a full balance scan.
         const matchingWarehouseSummary = partStockSummary[part.id];
-        const matchingDetailedBalances = matchingWarehouseSummary
-          ? []
-          : (balances || []).filter(
-              b => (b.partId === part.id || b.partCode === part.code) && b.warehouseId !== 'WH-SCRAP'
-            );
-        const hasWarehouseRows = matchingWarehouseSummary
-          ? matchingWarehouseSummary.rowCount > 0
-          : matchingDetailedBalances.length > 0;
+        const hasWarehouseRows = (matchingWarehouseSummary?.rowCount || 0) > 0;
         const warehouseStock = matchingWarehouseSummary
           ? (part.unit === 'KG' ? matchingWarehouseSummary.availableKg : matchingWarehouseSummary.availableQty)
-          : matchingDetailedBalances.reduce(
-              (sum, b) => sum + (part.unit === 'KG' ? b.availableKg : b.availableQty),
-              0
-            );
+          : 0;
 
         // Use detailed warehouse stock if tracked there, otherwise stage stock
         const currentStock = hasWarehouseRows ? warehouseStock : stageStock;
 
         const locationsSet = new Set<string>(matchingWarehouseSummary?.locationsSummary || []);
-        matchingDetailedBalances.forEach(b => {
-          if (b.availableQty > 0 || b.availableKg > 0) locationsSet.add(b.warehouseName);
-        });
         matchingStageBalances.forEach(sb => {
           if (sb.usableQty > 0) locationsSet.add(sb.stageName);
         });
@@ -307,7 +294,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
       })
       .filter(item => item.currentStock < item.reorderPoint)
       .sort((a, b) => a.coveragePercent - b.coveragePercent || b.shortageAmount - a.shortageAmount);
-  }, [parts, stageBalances, balances, partStockSummary]);
+  }, [parts, stageBalances, partStockSummary, partStockSummaryError]);
 
   const filteredReorderAlerts = useMemo(() => {
     return reorderAlerts.filter(item => {
@@ -635,6 +622,12 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
 
       {/* DEDICATED PAGE: Reorder Point Alerts & Material Shortages (ALERTS Sub-Tab) */}
       {activeSubTab === 'ALERTS' && (
+        {partStockSummaryError && (
+          <div role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            محاسبه هشدارهای نقطه سفارش متوقف شد؛ خلاصه موجودی PostgreSQL در دسترس نیست: {partStockSummaryError}
+          </div>
+        )}
+
         <div className="space-y-4">
           {/* Summary KPI Row for Shortages */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
