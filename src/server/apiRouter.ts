@@ -2907,9 +2907,10 @@ apiRouter.get('/inventory/stock-inquiry/grouped', async (req: Request, res: Resp
       return res.status(503).json({ success: false, error: 'گزارش گروهی موجودی فقط از PostgreSQL قابل ارائه است.' });
     }
     const prisma = getPrismaClient();
+    let where: any;
     let queryValue: (key: string) => string | undefined;
     try {
-      ({ queryValue } = buildStockInquiryWhere(req.query));
+      ({ where, queryValue } = buildStockInquiryWhere(req.query));
     } catch (filterError) {
       return res.status(400).json({ success: false, error: filterError instanceof Error ? filterError.message : 'فیلتر گزارش گروهی معتبر نیست.' });
     }
