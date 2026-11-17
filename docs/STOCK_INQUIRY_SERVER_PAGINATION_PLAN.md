@@ -1,31 +1,23 @@
 # Stock Inquiry Server-Side Pagination — Implementation Contract
 
 ## Status
-Implementation in progress. The PostgreSQL list, summary, and facet endpoints are now connected to the analytical stock-inquiry UI. The analytical table requests one 15-row page at a time; KPI aggregates and stock-dependent facets come from PostgreSQL. Coil-pack number is now a separate exact-match filter from material-lot / coil ID. This is not yet the final server-side migration: the module still downloads the full stock-balance result for dashboard, reorder-alert, Cardex, grouping, and CSV consumers. Those consumers must be migrated or explicitly proven to require the complete collection before the module-wide full fetch can be removed.
 
-Additional migration milestones:
-- Grouped inquiry details now have a separate `detailsOnly=true` mode on the grouped endpoint. It scopes by the selected group, returns one page (default 50, max 100), and the UI requests details only when a group is expanded. A "load next 50" action retrieves subsequent rows. Filter changes invalidate the detail cache.
-- The Cardex part selector now reads its stock totals and warehouse-location summary from `/part-summary`; that endpoint uses Prisma database `groupBy` by part and quality status plus a distinct part/warehouse query. The UI loads stock detail only for the selected part and shows explicit summary/detail errors instead of treating a failed query as zero stock.
-- Remaining grouped-inquiry limitation: group-header totals are still computed by loading all matching StockBalance rows into the server process. They are no longer calculated in the browser, but database-level grouped aggregation is still required to avoid loading the entire filtered set on every group-summary request.
+Inventory inquiry migration is substantially advanced on the working branch. The analytical stock list requests one 15-row page at a time; KPI summaries, stock-dependent facets, grouped totals, Cardex, export, and selected-part detail are PostgreSQL-backed. The parent `InventoryModuleView` no longer requests an unpaginated stock-balance list or keeps a module-wide `balances` array.
 
-- The grouped inquiry now has a PostgreSQL-backed `/inventory/stock-inquiry/grouped` endpoint using the shared stock-inquiry filter predicate. The UI uses its complete-result group totals and counts; an HTTP integration assertion covers coil-pack totals and rejects unsupported grouping keys.
-- Important limitation: this first grouped endpoint currently selects the filtered stock rows on the server and aggregates them in application memory. It prevents client-side total calculation from defining the totals, but it is not yet a database `GROUP BY` implementation and is not the final scalability target. Group detail rows are also still sourced from the parent-provided balance collection. The next grouped-inquiry step is database-level aggregation plus lazy, group-scoped detail loading.
+Recent implementation milestones:
+- Group headers use PostgreSQL `GROUP BY` with parameterized filter values; no full filtered balance result is materialized in the application process to calculate group totals.
+- Expanded group details are fetched on demand, scoped to the group and paginated (50 rows by default, max 100); the UI can load the next page.
+- The Cardex selector uses per-part database aggregates for quantities, weights, blocked stock and warehouse locations. Selected-part detail is fetched separately (up to 200 rows per request).
+- Dashboard warehouse cards no longer depend on detailed balance rows. Reorder alerts no longer fall back to a full balance scan after a summary failure; errors are surfaced instead of showing false zero stock.
+- Issue, Transfer and Adjustment modals use scoped part/warehouse stock queries and no longer receive the parent full-balance collection.
+- The parent inventory module's unpaginated stock inquiry fetch has been removed. WIP stage balances continue to use their separate stage data source.
+- CSV export streams the complete filtered PostgreSQL result in batches; Cardex reads posted transactions for the selected part from the PostgreSQL ledger.
 
-- Warehouse-level and per-part stock summary endpoints now back the inventory dashboard warehouse cards and reorder-alert calculations. The detailed-balance calculation remains as a fallback if a summary request is unavailable.
-- Cardex now loads only the selected part's posted transactions from the immutable PostgreSQL inventory ledger; the old all-documents download and browser-side running-balance reconstruction have been removed.
-- CSV export now streams the complete filtered stock result from PostgreSQL in batches; the browser no longer builds the export from its in-memory balance collection.
-
-Latest verified implementation commit: `93439bc4eba25e8c4c864508b6d404c0fea279fa`
-CI run: [43836068689](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43836068689) — success. The inventory HTTP integration test verifies selected-part Cardex ledger output and filtered CSV export row count/content.
-
-Still open: grouped inquiry is calculated from the full parent-provided balance collection; the parent module still loads the full stock-balance list for operational forms and legacy consumers. These must be migrated before removing that fetch.
-
-
-- The Cardex part selector migration is now connected to the view: its summary is database-aggregated by part/quality status, and selected-part stock detail is fetched separately (up to 200 rows per request). The StockInquiryView no longer accepts the parent full-balance prop; its list, KPI summary, facets, grouped totals, group detail, Cardex ledger and selected-part stock detail are API-backed.
-- The dashboard no longer receives detailed balances and no longer calculates warehouse cards from a full-balance fallback. It displays an explicit unavailable state when the warehouse summary API fails.
-- Reorder alerts no longer fall back to the full balance array when the per-part summary fails. In that case alert calculation is stopped and an explicit error is shown; stage inventory remains the intentional fallback only when a successful warehouse summary confirms no warehouse rows for that part.
-- Issue, Transfer and Adjustment modals no longer receive the parent balances collection; their stock lookups are scoped to the selected part/warehouse.
-- The parent InventoryModuleView no longer calls `GET /api/inventory/stock-inquiry` without pagination and no longer stores a module-wide `balances` array. The remaining WIP stage report uses its separate stage-balance data source.
+Important remaining caveats:
+- The SQL grouped-query filter clauses mirror the normalized query values returned by the shared filter builder. Keep the integration tests that compare group totals to the filtered stock result as a regression guard when filters change.
+- Selected-part stock detail currently requests up to 200 rows in one page; unusually large part/warehouse combinations may need a "load more" path.
+- CI is not a substitute for acceptance against the user's live PostgreSQL database.
+- The full SAP Fiori-style navigation/List Report/Object Page redesign, traceability end-to-end acceptance, and reporting acceptance are still outstanding.
 
 ## Current verified behavior
 - `GET /api/inventory/stock-inquiry` reads relational `StockBalance` data and already accepts pagination and several filters.
@@ -114,28 +106,31 @@ Cardex remains a separate part-scoped workflow. Load the selected part's complet
 ## Delivery rule
 Do not call this complete until the frontend no longer downloads the full stock-balance dataset for the inquiry table, all dependent views remain correct, the HTTP integration tests and TypeScript/build checks pass, and a real database-backed acceptance run has been performed. CI success alone is not proof of production database correctness.
 
-## Consumer audit — 2026-11-16 (updated)
+## Consumer audit — 2026-11-17
 
-The module-wide full-balance dependency is **not removed**. The following scoped migrations are now implemented:
+The module-wide full-balance dependency has been removed from the inventory module. The following consumers now use scoped PostgreSQL reads:
 
-| Consumer | Current state | Evidence / remaining work |
+| Consumer | Current state | Remaining work |
 |---|---|---|
-| `IssueFormModal` | Loads stock for selected part and preferred warehouse from PostgreSQL; falls back to other warehouses only when preferred warehouse has no available stock. Removed stale per-part badge calculated from global balances. | Commits `9c88fe5`, `c277962`; CI for `9c88fe5` passed; CI for `c277962` is pending at this update. |
-| `TransferFormModal` | Loads stock for selected part and source warehouse. Available quantity and lot choices now both use the scoped result, not the global balances prop. | Commits `b2bd266`, `96ea236`; CI for `b2bd266` passed; CI for `96ea236` is pending at this update. |
-| `AdjustmentFormModal` | Loads stock rows for selected part and warehouse from PostgreSQL; current balance selection uses this scoped result. | Commit `61712f0`; CI run [43862849837](https://github.com/vaheme64-design/kosartest_postgres_rebuilt/actions/runs/43862849837) — success. |
-| `StockInquiryView` grouped rows | Group headers come from the grouped API; expanded details are fetched per group in 50-row pages. | Group header endpoint still loads all filtered StockBalance rows in server memory; replace with database-level aggregation. |
-| `StockInquiryView` part/Cardex selector | Totals and warehouse locations use DB-grouped per-part summary; selected part detail loads through the paginated stock inquiry API. Cardex history remains independently PostgreSQL-backed. | Validate full selector workflow; selected-part detail currently requests up to 200 rows in one page. |
-| `InventoryDashboard` | No longer receives detailed balances; warehouse cards use the summary endpoint and show unavailable state on error. | Complete end-to-end acceptance against real factory data. |
-| Reorder alerts | Uses per-part PostgreSQL summary; stops calculation and displays an error if the summary fails. | Complete end-to-end acceptance against real factory data. |
-| Parent inventory module | Still calls `/api/inventory/stock-inquiry` without pagination and stores all returned balances. | Keep until grouped inquiry, Cardex selector, dashboard, reorder alerts and any remaining consumers are migrated. |
+| `IssueFormModal` | Selected-part and preferred-warehouse query; no parent balances prop. | Manual issue workflow acceptance, including warehouse fallback. |
+| `TransferFormModal` | Selected-part/source-warehouse query; availability derives from the scoped result. | Manual transfer workflow acceptance. |
+| `AdjustmentFormModal` | Selected-part/warehouse query; no parent balances prop. | Manual adjustment workflow acceptance. |
+| `StockInquiryView` list/KPIs/facets | Paginated list, complete-result summary and facets from PostgreSQL. | Validate combined filters and page transitions on production-like data. |
+| `StockInquiryView` grouped rows | PostgreSQL `GROUP BY` headers; group details are fetched on expand in pages. | Expand all seven grouping dimensions against production-like coil, contract and WIP records. |
+| `StockInquiryView` part/Cardex selector | Database-aggregated part summary; selected-part stock detail and Cardex ledger are separate requests. | Add pagination for selected-part detail if any part can exceed 200 stock rows. |
+| `InventoryDashboard` | Warehouse summary only; no full-balance fallback. Explicit unavailable state on summary failure. | Manual dashboard validation. |
+| Reorder alerts | Per-part PostgreSQL summary; stops calculations and surfaces errors if summary retrieval fails. Stage stock is used only when the successful warehouse summary has no rows. | Validate mixed warehouse/WIP and zero-stock scenarios. |
+| Parent inventory module | No unpaginated `/stock-inquiry` fetch and no module-wide `balances` state. | Confirm no external legacy component still expects the removed parent array. |
 
-### Updated safe next sequence
+### Remaining delivery sequence
 
-1. Complete CI for the latest transfer availability fix and issue-selector cleanup; correct any failures before treating these slices as accepted.
-2. Add integration coverage for server-side grouped aggregates and on-demand group detail retrieval, using the same `buildStockInquiryWhere` predicate as list, summary and export.
-3. Replace the inquiry view's client-side grouping and per-part balance scan; do not return every matching stock row merely to calculate group totals.
-4. Remove dashboard and reorder-alert full-balance fallbacks only after PostgreSQL summary failures are surfaced as explicit errors.
-5. Change parent loading so detailed balances are fetched only by a workflow that demonstrably needs them; audit every `balances` prop consumer before removing the module-wide fetch.
-6. Run full CI, database-backed lifecycle tests, TypeScript/build checks and manual acceptance against the user's PostgreSQL environment.
+1. Complete CI for the latest SQL grouping/detail-filter changes and all integration tests.
+2. Add/verify cross-group consistency tests for all seven grouping dimensions and combined filters.
+3. Add pagination for selected-part detail if production data shows more than 200 stock rows per part.
+4. Complete full traceability acceptance from receipt through coil issue/return, WIP, finished goods and delivery.
+5. Complete report-builder/reporting acceptance.
+6. Execute manual acceptance against the user's real PostgreSQL database.
+7. Perform the full SAP Fiori-inspired UX redesign (navigation, filter bar, List Report, Object Page and action toolbar) without changing business semantics.
+8. Only after final acceptance, create the separate `version-2` branch from the accepted working branch. Do not merge to `main` without explicit approval.
 
-This audit does not claim full-fetch removal or completion of the SAP Fiori-style UX redesign. The standard stock list is paginated and the CSV/Cardex paths are PostgreSQL-backed, but grouped inquiry and the part/Cardex selector still depend on the full client collection.
+The inventory full-fetch removal is implemented, but the project as a whole is not complete. The final UX redesign and real-database acceptance remain open.
