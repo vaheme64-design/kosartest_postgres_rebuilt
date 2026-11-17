@@ -576,6 +576,61 @@ export const StockInquiryView: React.FC<StockInquiryViewProps> = ({
   const totalReservedKg = serverSummary?.reservedKg ?? 0;
   const totalSapcoKg = serverSummary?.sapcoOwnedKg ?? 0;
 
+  const groupedData = serverGroupedData;
+
+  const fetchGroupDetails = async (group: typeof serverGroupedData[number], page: number, append: boolean) => {
+    setGroupDetailLoading(group.groupKey);
+    setGroupDetailErrors(current => ({ ...current, [group.groupKey]: '' }));
+    const params = new URLSearchParams();
+    params.set('groupBy', groupBy);
+    params.set('detailsOnly', 'true');
+    params.set('groupKey', group.groupKey);
+    params.set('page', String(page));
+    params.set('limit', '50');
+    if (selectedPartFilter !== 'ALL') params.set('partId', selectedPartFilter);
+    if (selectedWarehouseFilter !== 'ALL') params.set('warehouseId', selectedWarehouseFilter);
+    if (selectedOwnershipFilter !== 'ALL') params.set('ownership', selectedOwnershipFilter);
+    if (selectedGradeFilter !== 'ALL') params.set('materialGrade', selectedGradeFilter);
+    if (selectedThicknessFilter !== 'ALL') params.set('thicknessMm', selectedThicknessFilter);
+    if (selectedCoilPackFilter !== 'ALL') params.set('coilPackNumber', selectedCoilPackFilter);
+    if (selectedContractFilter !== 'ALL') params.set('contractNumber', selectedContractFilter);
+    if (selectedLotFilter !== 'ALL') params.set('lotNumber', selectedLotFilter);
+    if (searchTerm.trim()) params.set('search', searchTerm.trim());
+    if (onlyAvailable) params.set('onlyAvailable', 'true');
+    try {
+      const response = await fetch(`/api/inventory/stock-inquiry/grouped?${params.toString()}`);
+      const result = await response.json();
+      if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+        throw new Error(result?.error || 'دریافت جزئیات گروه ناموفق بود.');
+      }
+      setGroupDetailPages(current => ({
+        ...current,
+        [group.groupKey]: {
+          items: append ? [...(current[group.groupKey]?.items || []), ...result.data] : result.data,
+          page: result.page,
+          totalPages: result.totalPages,
+          total: result.total,
+        },
+      }));
+    } catch (error) {
+      setGroupDetailErrors(current => ({
+        ...current,
+        [group.groupKey]: error instanceof Error ? error.message : 'خطا در دریافت جزئیات گروه',
+      }));
+    } finally {
+      setGroupDetailLoading(current => current === group.groupKey ? null : current);
+    }
+  };
+
+  const handleToggleGroup = (group: typeof serverGroupedData[number]) => {
+    if (expandedGroupKey === group.groupKey) {
+      setExpandedGroupKey(null);
+      return;
+    }
+    setExpandedGroupKey(group.groupKey);
+    if (!groupDetailPages[group.groupKey]) void fetchGroupDetails(group, 1, false);
+  };
+
   const totalPages = serverTotalPages;
   const paginatedBalances = serverPageBalances;
 
