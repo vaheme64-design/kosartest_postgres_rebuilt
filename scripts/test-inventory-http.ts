@@ -486,8 +486,8 @@ async function main() {
       documentType: 'DELIVERY_CUSTOMER',
       warehouseId: 'WH-FINISHED',
       ownership: 'COMPANY_OWNED',
-      referenceType: 'CUSTOMER_ORDER',
-      referenceNumber: nonce,
+      referenceType: 'CUSTOMER',
+      referenceNumber: customer.code,
       autoPost: true,
       user: { uid: 'CI-INVENTORY-TEST', displayName: 'CI inventory lifecycle test' },
       lines: [{
@@ -531,8 +531,10 @@ async function main() {
       Number(deliveryTransactions[0].quantitySigned) === -3 &&
       Number(deliveryTransactions[0].weightKgSigned) === Number((3 * finishedWeightPerUnitKg).toFixed(3)),
       `Customer delivery must create one negative PostgreSQL ledger movement: ${JSON.stringify(deliveryTransactions)}`);
-    assert(persistedDelivery?.postingStatus === 'POSTED' && persistedDelivery.transactions.length === 1,
-      'Customer delivery document and its posted transaction must persist together in PostgreSQL.');
+    assert(persistedDelivery?.postingStatus === 'POSTED' &&
+      persistedDelivery.transactions.length === 1 &&
+      persistedDelivery.referenceNumber === customer.code,
+      'Customer delivery document, customer reference and its posted transaction must persist together in PostgreSQL.');
     console.log('PASS: Customer delivery deducts finished goods and persists a negative PostgreSQL ledger movement.');
   } finally {
     if (server) await new Promise<void>(resolve => server!.close(() => resolve()));
@@ -589,6 +591,8 @@ async function main() {
       await prisma.materialContractTransaction.deleteMany({ where: { contractId } });
       await prisma.materialContract.deleteMany({ where: { id: contractId } });
     }
+    // Rehydrate the in-memory document store after deleting the test-only documents.
+    await loadInventoryAppState();
     await prisma.$disconnect();
   }
 }
