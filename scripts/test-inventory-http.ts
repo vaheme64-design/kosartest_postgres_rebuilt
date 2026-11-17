@@ -257,6 +257,18 @@ async function main() {
       `PostgreSQL warehouse grouping must aggregate the expected warehouse: ${JSON.stringify(groupedWarehouse.payload)}`
     );
     console.log('PASS: PostgreSQL GROUP BY aggregates part, ownership, grade and thickness groups.');
+    const groupedCombinedFilters = await requestJson(baseUrl, `/api/inventory/stock-inquiry/grouped?groupBy=COIL_PACK&search=${encodeURIComponent(nonce)}&onlyAvailable=true&thicknessMm=${encodeURIComponent(String(expectedThickness))}`);
+    assert(
+      groupedCombinedFilters.response.status === 200 &&
+        groupedCombinedFilters.payload.success === true &&
+        groupedCombinedFilters.payload.totalRows === 1 &&
+        groupedCombinedFilters.payload.data?.length === 1 &&
+        groupedCombinedFilters.payload.data[0]?.groupKey === `${nonce}-PACK` &&
+        Number(groupedCombinedFilters.payload.data[0]?.totalAvailableKg) === 100,
+      `Grouped aggregate must preserve combined search, availability and thickness filters: ${JSON.stringify(groupedCombinedFilters.payload)}`
+    );
+    console.log('PASS: Grouped SQL aggregate honors combined search, availability and thickness filters.');
+
 
 
     const invalidGroupedInquiry = await requestJson(baseUrl, `/api/inventory/stock-inquiry/grouped?groupBy=INVALID&search=${encodeURIComponent(nonce)}`);
