@@ -148,6 +148,7 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
   const [isReturnOpen, setIsReturnOpen] = useState(false);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [isAdjustmentOpen, setIsAdjustmentOpen] = useState(false);
+  const [showSecondaryQuickActions, setShowSecondaryQuickActions] = useState(false);
 
   useEffect(() => {
     if (initialActionModal === 'RECEIPT') setIsReceiptOpen(true);
@@ -410,6 +411,20 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
   ];
 
 
+  const activeTabMeta = [...primaryTabs, ...secondaryTabs].find(tab => tab.id === activeSubTab);
+  const activeTabDescriptions: Record<InventorySubTab, string> = {
+    DASHBOARD: 'نمای کلی موجودی، وضعیت انبارها و دسترسی سریع به عملیات پرتکرار',
+    INQUIRY: 'جست‌وجو، فیلتر، مشاهده موجودی آزاد و بررسی کاردکس هر کالا',
+    COILS: 'رهگیری کلاف فیزیکی، کویل‌پک، تخصیص قرارداد و مانده وزن',
+    MOVEMENT: 'فهرست اسناد، وضعیت ثبت قطعی و گردش‌های ورود و خروج',
+    CUSTOM_REPORTS: 'ساخت گزارش‌های عملیاتی با فیلترها و ابعاد دلخواه',
+    ALERTS: 'شناسایی اقلام زیر نقطه سفارش و اولویت‌بندی کسری‌ها',
+    CONTRACTS: 'مدیریت قراردادهای مواد، سهمیه‌ها و تخصیص به کلاف',
+    IMPORT_EXPORT: 'ورود و خروج کنترل‌شده اطلاعات پایه و فایل‌های جدولی',
+    SAPCO: 'تطبیق مصرف ورق امانی و مانده حساب قراردادهای ساپکو',
+    STAGES: 'مشاهده موجودی نیمه‌ساخته در مراحل مختلف تولید',
+  };
+
   const categoryLabels: Record<PartCategory, string> = {
     RAW_MATERIAL: 'ماده اولیه / ورق',
     WIP_PART: 'نیمه‌ساخته (WIP)',
@@ -478,15 +493,15 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
             </div>
           </div>
 
-          {/* Primary Task-Oriented Operations */}
+          {/* SAP-style action toolbar: keep the three daily actions visible; place less frequent actions in More. */}
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => setIsReceiptOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 bg-[#0a6ed1] hover:bg-[#085caf] text-white rounded-md text-xs font-semibold transition-colors cursor-pointer"
             >
               <ArrowDownLeft className="w-3.5 h-3.5" />
-              <span>ثبت رسید کالا / رول</span>
+              <span>ثبت رسید</span>
             </button>
             <button
               type="button"
@@ -494,18 +509,10 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
                 setIssueModalPreset({ subType: 'PRODUCTION_LINE', warehouseId: 'WH-RAW' });
                 setIsIssueOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-md text-xs font-semibold transition-colors cursor-pointer"
             >
-              <ArrowUpRight className="w-3.5 h-3.5 text-orange-400" />
-              <span>حواله خروج به خط</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsMaterialIssueOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
-            >
-              <ArrowRightLeft className="w-3.5 h-3.5" />
-              <span>حواله مواد به عملیات</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+              <span>حواله به خط</span>
             </button>
             <button
               type="button"
@@ -513,37 +520,36 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
                 setIssueModalPreset({ subType: 'CUSTOMER_DELIVERY', warehouseId: 'WH-FINISHED' });
                 setIsIssueOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-md text-xs font-semibold transition-colors cursor-pointer"
             >
               <Truck className="w-3.5 h-3.5" />
-              <span>تحویل به مشتری</span>
+              <span>تحویل مشتری</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setIsReturnOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
-              <span>برگشت از خط</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsTransferOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-            >
-              <ArrowRightLeft className="w-3.5 h-3.5 text-slate-500" />
-              <span>انتقال</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsAdjustmentOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-            >
-              <Scale className="w-3.5 h-3.5 text-slate-500" />
-              <span>انبارگردانی</span>
-            </button>
-          </div>
-        </div>
+            <div className="relative">
+              <button
+                type="button"
+                aria-expanded={showSecondaryQuickActions}
+                aria-controls="inventory-secondary-quick-actions"
+                onClick={() => setShowSecondaryQuickActions(value => !value)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-md text-xs font-semibold transition-colors cursor-pointer"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+                <span>سایر عملیات</span>
+              </button>
+              {showSecondaryQuickActions && (
+                <div id="inventory-secondary-quick-actions" className="absolute left-0 top-full z-30 mt-1 min-w-52 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                  <button type="button" onClick={() => { setIsMaterialIssueOpen(true); setShowSecondaryQuickActions(false); }}
+                    className="w-full rounded-md px-3 py-2 text-right text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">حواله مواد به عملیات</button>
+                  <button type="button" onClick={() => { setIsReturnOpen(true); setShowSecondaryQuickActions(false); }}
+                    className="w-full rounded-md px-3 py-2 text-right text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">برگشت ورق / ته‌کلاف از خط</button>
+                  <button type="button" onClick={() => { setIsTransferOpen(true); setShowSecondaryQuickActions(false); }}
+                    className="w-full rounded-md px-3 py-2 text-right text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">انتقال بین انبارها</button>
+                  <button type="button" onClick={() => { setIsAdjustmentOpen(true); setShowSecondaryQuickActions(false); }}
+                    className="w-full rounded-md px-3 py-2 text-right text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">تعدیل / انبارگردانی</button>
+                </div>
+              )}
+            </div>
+          </div>        </div>
 
 
       </div>
@@ -619,6 +625,27 @@ export const InventoryModuleView: React.FC<InventoryModuleViewProps> = ({
           </div>
         </aside>
         <main className="min-w-0 space-y-4" aria-label="محتوای بخش انتخاب‌شده">
+      <section className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-2xs" aria-labelledby="inventory-page-title">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-2 text-[10px] text-slate-400">
+              <span>انبارداری</span>
+              <span aria-hidden="true">/</span>
+              <span>{activeTabMeta?.label || 'بخش انتخاب‌شده'}</span>
+            </div>
+            <h2 id="inventory-page-title" className="text-sm font-bold text-slate-900">
+              {activeTabMeta?.label || 'بخش انتخاب‌شده'}
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {activeTabDescriptions[activeSubTab]}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 text-[10px] text-slate-500">
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">محیط عملیاتی</span>
+            <span className="font-mono text-slate-400">KPIMS</span>
+          </div>
+        </div>
+      </section>
       {/* DEDICATED PAGE: Reorder Point Alerts & Material Shortages (ALERTS Sub-Tab) */}
       {activeSubTab === 'ALERTS' && (
         <>
