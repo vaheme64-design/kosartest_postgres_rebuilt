@@ -234,6 +234,25 @@ async function main() {
       'Grouped stock inquiry must reject unsupported grouping keys.'
     );
     console.log('PASS: Grouped stock inquiry validates the grouping key.');
+    const groupedDetails = await requestJson(baseUrl, `/api/inventory/stock-inquiry/grouped?groupBy=COIL_PACK&detailsOnly=true&groupKey=${encodeURIComponent(`${nonce}-PACK`)}&search=${encodeURIComponent(nonce)}&page=1&limit=10`);
+    assert(
+      groupedDetails.response.status === 200 &&
+        groupedDetails.payload.success === true &&
+        groupedDetails.payload.source === 'POSTGRESQL_STOCK_BALANCE_GROUP_DETAILS' &&
+        groupedDetails.payload.total === 1 &&
+        groupedDetails.payload.page === 1 &&
+        groupedDetails.payload.pageSize === 10 &&
+        groupedDetails.payload.data?.length === 1 &&
+        groupedDetails.payload.data[0]?.partId === dbPart.id &&
+        Number(groupedDetails.payload.data[0]?.physicalKg) === 100,
+      `Grouped stock inquiry details must be group-scoped and paginated: ${JSON.stringify(groupedDetails.payload)}`
+    );
+    console.log('PASS: Group details load from PostgreSQL with group scope and pagination.');
+
+    const missingGroupKey = await requestJson(baseUrl, `/api/inventory/stock-inquiry/grouped?groupBy=COIL_PACK&detailsOnly=true&search=${encodeURIComponent(nonce)}`);
+    assert(missingGroupKey.response.status === 400 && missingGroupKey.payload.success === false, 'Grouped detail endpoint must require a group key.');
+    console.log('PASS: Group detail endpoint validates the group key.');
+
 
 
     const warehouseSummary = await requestJson(baseUrl, `/api/inventory/stock-inquiry/warehouse-summary?search=${encodeURIComponent(nonce)}`);
