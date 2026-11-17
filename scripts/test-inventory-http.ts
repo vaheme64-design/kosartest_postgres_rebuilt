@@ -227,6 +227,28 @@ async function main() {
       `Grouped stock inquiry must calculate complete filtered coil-pack totals in PostgreSQL: ${JSON.stringify(groupedCoilPack.payload)}`
     );
     console.log('PASS: Grouped stock inquiry returns complete filtered coil-pack aggregates from PostgreSQL.');
+    const expectedGroupKeys: Array<[string, string]> = [
+      ['PART', dbPart.id],
+      ['WAREHOUSE', 'WH-RAW'],
+      ['OWNERSHIP', 'SAPCO_SUPPLIER_OWNED'],
+      ['GRADE', dbPart.material!.grade],
+      ['THICKNESS', dbPart.thicknessMm == null ? 'NO_THICK' : String(Number(dbPart.thicknessMm))],
+    ];
+    for (const [groupByKey, expectedKey] of expectedGroupKeys) {
+      const grouped = await requestJson(baseUrl, `/api/inventory/stock-inquiry/grouped?groupBy=${groupByKey}&search=${encodeURIComponent(nonce)}`);
+      const row = grouped.payload.data?.find((entry: any) => entry.groupKey === expectedKey);
+      assert(
+        grouped.response.status === 200 &&
+          grouped.payload.success === true &&
+          grouped.payload.totalRows === 1 &&
+          grouped.payload.totalGroups === 1 &&
+          row?.rowCount === 1 &&
+          Number(row?.totalPhysicalKg) === 100,
+        `PostgreSQL grouped stock inquiry must aggregate ${groupByKey} correctly: ${JSON.stringify(grouped.payload)}`
+      );
+    }
+    console.log('PASS: PostgreSQL GROUP BY aggregates part, warehouse, ownership, grade and thickness groups.');
+
 
     const invalidGroupedInquiry = await requestJson(baseUrl, `/api/inventory/stock-inquiry/grouped?groupBy=INVALID&search=${encodeURIComponent(nonce)}`);
     assert(
