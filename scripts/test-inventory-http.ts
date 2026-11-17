@@ -229,7 +229,7 @@ async function main() {
     console.log('PASS: Grouped stock inquiry returns complete filtered coil-pack aggregates from PostgreSQL.');
     const expectedGroupKeys: Array<[string, string]> = [
       ['PART', dbPart.id],
-      ['WAREHOUSE', 'WH-RAW'],
+      ['WAREHOUSE', warehouse.id],
       ['OWNERSHIP', 'SAPCO_SUPPLIER_OWNED'],
       ['GRADE', dbPart.material!.grade],
       ['THICKNESS', dbPart.thicknessMm == null ? 'NO_THICK' : String(Number(dbPart.thicknessMm))],
