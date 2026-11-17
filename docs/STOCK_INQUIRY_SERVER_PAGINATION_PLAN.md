@@ -12,6 +12,9 @@ Recent implementation milestones:
 - Issue, Transfer and Adjustment modals use scoped part/warehouse stock queries and no longer receive the parent full-balance collection.
 - The parent inventory module's unpaginated stock inquiry fetch has been removed. WIP stage balances continue to use their separate stage data source.
 - CSV export streams the complete filtered PostgreSQL result in batches; Cardex reads posted transactions for the selected part from the PostgreSQL ledger.
+- The inventory module now has a persistent vertical section navigator with primary and specialist work areas, responsive on smaller screens. The top action toolbar remains task-oriented; section navigation is no longer a dropdown/chip row.
+- The stock inquiry filter bar now uses progressive disclosure: core search/part/warehouse/ownership controls remain visible, while grade, thickness, coil-pack, lot and contract filters are grouped under an expandable advanced-filter section with an active-filter count.
+
 
 Important remaining caveats:
 - The SQL grouped-query filter clauses mirror the normalized query values returned by the shared filter builder. Keep the integration tests that compare group totals to the filtered stock result as a regression guard when filters change.
