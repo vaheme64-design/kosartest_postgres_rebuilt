@@ -22,7 +22,6 @@ interface AdjustmentFormModalProps {
   onClose: () => void;
   parts: Part[];
   warehouses: WarehouseDefinition[];
-  balances: DetailedStockBalance[];
   onSubmit: (payload: any) => Promise<{ success: boolean; message?: string; error?: string }>;
   onItemCreated?: () => void;
 }
@@ -32,7 +31,6 @@ export const AdjustmentFormModal: React.FC<AdjustmentFormModalProps> = ({
   onClose,
   parts: initialParts,
   warehouses: initialWarehouses,
-  balances,
   onSubmit,
   onItemCreated,
 }) => {
